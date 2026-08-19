@@ -5,6 +5,8 @@
     <BuildType Name="Release" />
   </Configurations>
   <Project Path="Projects/Application/Application.csproj" />
+  <Project Path="Projects/Andraxia.Tests/Andraxia.Tests.csproj" />
+  <Project Path="Projects/Andraxia/Andraxia.csproj" />
   <Project Path="Projects/BuildTool/BuildTool.csproj">
     <BuildType Solution="Analyze|*" Project="Release" />
     <Build Solution="Analyze|*" Project="false" />

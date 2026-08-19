@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <RootNamespace>Server.Andraxia</RootNamespace>
+        <AssemblyName>Andraxia</AssemblyName>
+        <Product>Andraxia Content</Product>
+        <OutDir>..\..\Distribution\Assemblies</OutDir>
+        <PublishDir>..\..\Distribution\Assemblies</PublishDir>
+        <Configurations>Debug;Release;Analyze</Configurations>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Server\Server.csproj" Private="false" PrivateAssets="All" IncludeAssets="None">
+            <IncludeInPackage>false</IncludeInPackage>
+        </ProjectReference>
+        <ProjectReference Include="..\UOContent\UOContent.csproj" Private="false" PrivateAssets="All" IncludeAssets="None">
+            <IncludeInPackage>false</IncludeInPackage>
+        </ProjectReference>
+        <PackageReference Update="Serilog" Version="4.4.0" />
+    </ItemGroup>
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+            <_Parameter1>Andraxia.Tests</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+</Project>
