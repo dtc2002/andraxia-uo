@@ -5,4 +5,19 @@ namespace Server.Andraxia;
 /// </summary>
 public static class AndraxiaAssembly
 {
+    private static AndraxiaWorldStatePersistence _worldStatePersistence;
+
+    internal static WorldStateStore WorldStates { get; private set; }
+
+    public static void Configure()
+    {
+        if (_worldStatePersistence != null)
+        {
+            return;
+        }
+
+        WorldStates = new WorldStateStore(KnownWorldStates.Definitions);
+        _worldStatePersistence = new AndraxiaWorldStatePersistence(WorldStates);
+        WorldStateCommands.Configure(WorldStates);
+    }
 }
