@@ -50,8 +50,29 @@ internal static class EventCommands
             e.Mobile.SendMessage(
                 $"{instance.Id}: {instance.DefinitionId}, target {instance.TargetId}, " +
                 $"state {EventLifecycleTokens.GetToken(instance.State)}, started {instance.StartedUtc:O}, " +
-                $"expires {instance.ExpiresUtc:O}{completed}"
+                $"expires {instance.ExpiresUtc:O}{completed}, owned {instance.OwnedMobiles.Count}, " +
+                $"remaining {instance.OwnedMobiles.Count(serial => World.FindMobile(serial) is { Deleted: false })}"
             );
+
+            if (instance.State != EventLifecycleState.Active)
+            {
+                continue;
+            }
+
+            foreach (var serial in instance.OwnedMobiles)
+            {
+                var mobile = World.FindMobile(serial, true);
+                if (mobile == null)
+                {
+                    e.Mobile.SendMessage($"  {serial} Type=missing Map=- Pos=- Alive=? Deleted=?");
+                    continue;
+                }
+
+                e.Mobile.SendMessage(
+                    $"  {serial} Type={mobile.GetType().Name} Map={mobile.Map?.Name ?? "-"} " +
+                    $"Pos={mobile.X},{mobile.Y},{mobile.Z} Alive={mobile.Alive} Deleted={mobile.Deleted}"
+                );
+            }
         }
     }
 

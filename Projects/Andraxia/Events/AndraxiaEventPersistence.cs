@@ -8,9 +8,10 @@ namespace Server.Andraxia;
 
 public sealed class AndraxiaEventPersistence : GenericPersistence
 {
-    internal const int CurrentVersion = 1;
+    internal const int CurrentVersion = 2;
     internal const string PersistenceName = "AndraxiaEvents";
     internal const int MaxEntryCount = 10_000;
+    internal const int MaxOwnedMobileCount = 100;
 
     private static readonly ILogger logger = LogFactory.GetLogger(typeof(AndraxiaEventPersistence));
     private readonly EventStore _events;
@@ -48,6 +49,12 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             if (instance.CompletedUtc is { } completedUtc)
             {
                 writer.Write(completedUtc);
+            }
+
+            writer.WriteEncodedInt(instance.OwnedMobiles.Count);
+            foreach (var serial in instance.OwnedMobiles)
+            {
+                writer.Write(serial);
             }
         }
     }
@@ -87,6 +94,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             var startedUtc = default(DateTime);
             var expiresUtc = default(DateTime);
             DateTime? completedUtc = null;
+            Serial[] ownedMobiles = [];
 
             if (version >= 1)
             {
@@ -95,6 +103,23 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 if (reader.ReadBool())
                 {
                     completedUtc = reader.ReadDateTime();
+                }
+            }
+
+            if (version >= 2)
+            {
+                var ownedCount = reader.ReadEncodedInt();
+                if (ownedCount is < 0 or > MaxOwnedMobileCount)
+                {
+                    throw new InvalidDataException(
+                        $"Invalid owned-mobile count {ownedCount} for persisted event {instanceToken}."
+                    );
+                }
+
+                ownedMobiles = new Serial[ownedCount];
+                for (var ownedIndex = 0; ownedIndex < ownedCount; ownedIndex++)
+                {
+                    ownedMobiles[ownedIndex] = reader.ReadSerial();
                 }
             }
 
@@ -169,7 +194,8 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 state,
                 startedUtc,
                 expiresUtc,
-                completedUtc
+                completedUtc,
+                ownedMobiles
             );
 
             if (failure != EventRestoreFailure.None)
@@ -187,6 +213,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
     public override void PostDeserialize()
     {
         ReconcileWorldState();
+        _service.RecoverOwnedMobiles(Core.Now);
         _service.Advance(Core.Now);
     }
 

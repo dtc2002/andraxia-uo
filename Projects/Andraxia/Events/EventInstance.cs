@@ -1,10 +1,18 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using Server;
 
 namespace Server.Andraxia;
 
 public sealed class EventInstance
 {
-    internal EventInstance(EventInstanceId id, EventDefinition definition, DateTime startedUtc) :
+    internal EventInstance(
+        EventInstanceId id,
+        EventDefinition definition,
+        DateTime startedUtc,
+        IReadOnlyCollection<Serial> ownedMobiles = null
+    ) :
         this(
             id,
             definition.Id,
@@ -12,7 +20,8 @@ public sealed class EventInstance
             EventLifecycleState.Active,
             startedUtc,
             startedUtc + definition.Duration,
-            null
+            null,
+            ownedMobiles
         )
     {
     }
@@ -24,7 +33,8 @@ public sealed class EventInstance
         EventLifecycleState state,
         DateTime startedUtc,
         DateTime expiresUtc,
-        DateTime? completedUtc
+        DateTime? completedUtc,
+        IReadOnlyCollection<Serial> ownedMobiles = null
     )
     {
         ValidateTimestamp(startedUtc, nameof(startedUtc));
@@ -61,6 +71,7 @@ public sealed class EventInstance
         StartedUtc = startedUtc;
         ExpiresUtc = expiresUtc;
         CompletedUtc = completedUtc;
+        OwnedMobiles = new ReadOnlyCollection<Serial>([.. ownedMobiles ?? []]);
     }
 
     public EventInstanceId Id { get; }
@@ -70,6 +81,7 @@ public sealed class EventInstance
     public DateTime StartedUtc { get; }
     public DateTime ExpiresUtc { get; }
     public DateTime? CompletedUtc { get; }
+    public IReadOnlyList<Serial> OwnedMobiles { get; }
 
     private static void ValidateTimestamp(DateTime value, string parameterName)
     {

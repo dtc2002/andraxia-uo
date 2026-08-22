@@ -101,7 +101,7 @@ public class AndraxiaEventServiceTests : IDisposable
     {
         var events = new EventStore(KnownEvents.Definitions);
         var worldStates = new WorldStateStore(KnownWorldStates.Definitions);
-        var service = new AndraxiaEventService(events, worldStates);
+        var service = new AndraxiaEventService(events, worldStates, new TestEventEncounterSpawner());
         _services.Add(service);
         return (service, events, worldStates);
     }

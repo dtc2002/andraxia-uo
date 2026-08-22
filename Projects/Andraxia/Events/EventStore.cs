@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Server;
 
 namespace Server.Andraxia;
 
@@ -9,6 +11,7 @@ public enum EventTransitionFailure
     UnknownDefinition,
     DuplicateInstance,
     DuplicateActiveDefinitionOrTarget,
+    EncounterSpawnFailed,
     UnknownInstance,
     SameState,
     TerminalInstance
@@ -118,11 +121,12 @@ public sealed class EventStore
     internal EventTransitionResult TriggerValidated(
         EventDefinitionId definitionId,
         EventInstanceId instanceId,
-        DateTime nowUtc
+        DateTime nowUtc,
+        IReadOnlyCollection<Serial> ownedMobiles = null
     )
     {
         ValidateUtc(nowUtc, nameof(nowUtc));
-        var instance = new EventInstance(instanceId, _definitions[definitionId], nowUtc);
+        var instance = new EventInstance(instanceId, _definitions[definitionId], nowUtc, ownedMobiles);
         _instances.Add(instanceId, instance);
         return new EventTransitionResult(true, EventTransitionFailure.None, instance, null, EventLifecycleState.Active);
     }
@@ -142,7 +146,8 @@ public sealed class EventStore
             requested,
             previous.StartedUtc,
             previous.ExpiresUtc,
-            nowUtc
+            nowUtc,
+            previous.OwnedMobiles
         );
         _instances[instanceId] = current;
         return new EventTransitionResult(true, EventTransitionFailure.None, current, previous.State, requested);
@@ -155,7 +160,8 @@ public sealed class EventStore
         EventLifecycleState state,
         DateTime startedUtc,
         DateTime expiresUtc,
-        DateTime? completedUtc
+        DateTime? completedUtc,
+        IReadOnlyCollection<Serial> ownedMobiles = null
     )
     {
         if (!_definitions.TryGetValue(definitionId, out var definition))
@@ -187,7 +193,7 @@ public sealed class EventStore
 
         _instances.Add(
             instanceId,
-            new EventInstance(instanceId, definitionId, targetId, state, startedUtc, expiresUtc, completedUtc)
+            new EventInstance(instanceId, definitionId, targetId, state, startedUtc, expiresUtc, completedUtc, ownedMobiles)
         );
         return EventRestoreFailure.None;
     }
@@ -196,6 +202,45 @@ public sealed class EventStore
         _definitions.TryGetValue(id, out definition);
 
     internal void Clear() => _instances.Clear();
+
+    internal bool TryRemoveOwnedMobile(Serial serial, out EventInstance updated)
+    {
+        var instance = _instances.Values.FirstOrDefault(
+            candidate => candidate.State == EventLifecycleState.Active && candidate.OwnedMobiles.Contains(serial)
+        );
+        if (instance == null)
+        {
+            updated = null;
+            return false;
+        }
+
+        updated = ReplaceOwnedMobiles(instance, instance.OwnedMobiles.Where(owned => owned != serial).ToArray());
+        return true;
+    }
+
+    internal void ClearOwnedMobiles(EventInstanceId instanceId)
+    {
+        if (_instances.TryGetValue(instanceId, out var instance) && instance.OwnedMobiles.Count != 0)
+        {
+            ReplaceOwnedMobiles(instance, []);
+        }
+    }
+
+    internal EventInstance ReplaceOwnedMobiles(EventInstance instance, IReadOnlyCollection<Serial> ownedMobiles)
+    {
+        var updated = new EventInstance(
+            instance.Id,
+            instance.DefinitionId,
+            instance.TargetId,
+            instance.State,
+            instance.StartedUtc,
+            instance.ExpiresUtc,
+            instance.CompletedUtc,
+            ownedMobiles
+        );
+        _instances[instance.Id] = updated;
+        return updated;
+    }
 
     private EventTransitionResult Transition(
         EventInstanceId instanceId,

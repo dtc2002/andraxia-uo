@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Server;
 using Server.Andraxia;
 using Xunit;
@@ -16,7 +17,7 @@ public class AndraxiaEventPersistenceTests
     [InlineData(EventLifecycleState.Active)]
     [InlineData(EventLifecycleState.Succeeded)]
     [InlineData(EventLifecycleState.Failed)]
-    public void VersionOneRoundTripsEventAndUtcTimestamps(EventLifecycleState state)
+    public void VersionTwoRoundTripsEventAndUtcTimestamps(EventLifecycleState state)
     {
         WithTemporaryDirectory(
             directory =>
@@ -36,6 +37,21 @@ public class AndraxiaEventPersistenceTests
                 Assert.Equal(DateTimeKind.Utc, instance.ExpiresUtc.Kind);
             }
         );
+    }
+
+    [Fact]
+    public void VersionTwoRoundTripsOwnedMobileSerials()
+    {
+        using var source = new TestContext();
+        using var loaded = new TestContext();
+        Assert.True(source.Service.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
+        var expected = Assert.Single(source.Events.EnumerateInstances()).OwnedMobiles.ToArray();
+        var writer = new BufferWriter(new byte[512], true);
+        source.Persistence.Serialize(writer);
+
+        loaded.Persistence.Deserialize(new BufferReader(writer.Buffer));
+
+        Assert.Equal(expected, Assert.Single(loaded.Events.EnumerateInstances()).OwnedMobiles);
     }
 
     [Fact]
@@ -152,6 +168,19 @@ public class AndraxiaEventPersistenceTests
         Assert.Equal(StartUtc, instance.StartedUtc);
         Assert.Equal(StartUtc.AddMinutes(5), instance.ExpiresUtc);
         Assert.Null(instance.CompletedUtc);
+        Assert.Empty(instance.OwnedMobiles);
+    }
+
+    [Fact]
+    public void VersionOneActiveMigratesWithNoOwnedMobiles()
+    {
+        using var context = new TestContext();
+
+        context.Persistence.Deserialize(
+            CreateVersionOneReader(EventLifecycleState.Active, StartUtc, StartUtc.AddMinutes(5), null)
+        );
+
+        Assert.Empty(Assert.Single(context.Events.EnumerateInstances()).OwnedMobiles);
     }
 
     [Theory]
@@ -168,16 +197,98 @@ public class AndraxiaEventPersistenceTests
         Assert.Equal(StartUtc.AddMinutes(-5), instance.StartedUtc);
         Assert.Equal(StartUtc, instance.ExpiresUtc);
         Assert.Equal(StartUtc, instance.CompletedUtc);
+        Assert.Empty(instance.OwnedMobiles);
     }
 
     [Fact]
-    public void OverdueVersionOneEventFailsDuringRecovery()
+    public void RecoveryKeepsActiveEventWhenOneOwnedMobileSurvives()
+    {
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        var missing = (Serial)41u;
+        var survivor = (Serial)42u;
+        context.Encounter.Existing.Add(survivor);
+        Assert.True(context.WorldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
+        context.Persistence.Deserialize(
+            CreateVersionTwoReader(EventLifecycleState.Active, StartUtc, StartUtc.AddMinutes(5), null, missing, survivor)
+        );
+
+        context.Persistence.PostDeserialize();
+
+        var active = Assert.Single(context.Events.EnumerateInstances());
+        Assert.Equal(EventLifecycleState.Active, active.State);
+        Assert.Equal(new[] { survivor }, active.OwnedMobiles);
+        AssertWorldState(context.WorldStates, WorldCondition.Threatened);
+    }
+
+    [Fact]
+    public void RecoveryCompletesActiveEventWhenAllOwnedMobilesAreMissing()
     {
         using var clock = new SimulationClock(StartUtc);
         using var context = new TestContext();
         Assert.True(context.WorldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
         context.Persistence.Deserialize(
-            CreateVersionOneReader(EventLifecycleState.Active, StartUtc.AddMinutes(-10), StartUtc.AddMinutes(-5), null)
+            CreateVersionTwoReader(
+                EventLifecycleState.Active,
+                StartUtc,
+                StartUtc.AddMinutes(5),
+                null,
+                (Serial)41u,
+                (Serial)42u
+            )
+        );
+
+        context.Persistence.PostDeserialize();
+
+        var completed = Assert.Single(context.Events.EnumerateInstances());
+        Assert.Equal(EventLifecycleState.Succeeded, completed.State);
+        Assert.Equal(StartUtc, completed.CompletedUtc);
+        AssertWorldState(context.WorldStates, WorldCondition.Normal);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(AndraxiaEventPersistence.MaxOwnedMobileCount + 1)]
+    public void InvalidOwnedMobileCountIsRejected(int count)
+    {
+        using var context = new TestContext();
+        var reader = CreateReader(
+            writer =>
+            {
+                WriteHeader(writer, 2, 1);
+                WriteVersionZeroEntry(
+                    writer,
+                    FirstId.ToString(),
+                    KnownEvents.BritainDisturbance.Value,
+                    KnownEvents.Britain.Value,
+                    "active"
+                );
+                writer.Write(StartUtc);
+                writer.Write(StartUtc.AddMinutes(5));
+                writer.Write(false);
+                writer.WriteEncodedInt(count);
+            }
+        );
+
+        Assert.Throws<InvalidDataException>(() => context.Persistence.Deserialize(reader));
+    }
+
+    [Fact]
+    public void OverdueVersionTwoEventFailsDuringRecoveryAndCleansSurvivor()
+    {
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        Assert.True(context.WorldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
+        var survivor = (Serial)42u;
+        context.Encounter.Existing.Add(survivor);
+        context.Persistence.Deserialize(
+            CreateVersionTwoReader(
+                EventLifecycleState.Active,
+                StartUtc.AddMinutes(-10),
+                StartUtc.AddMinutes(-5),
+                null,
+                survivor
+            )
         );
 
         context.Persistence.PostDeserialize();
@@ -186,6 +297,7 @@ public class AndraxiaEventPersistenceTests
         Assert.Equal(EventLifecycleState.Failed, instance.State);
         Assert.Equal(StartUtc, instance.CompletedUtc);
         AssertWorldState(context.WorldStates, WorldCondition.Normal);
+        Assert.Contains(survivor, context.Encounter.Deleted);
         Assert.False(context.Service.Scheduler.TimerRunning);
     }
 
@@ -210,8 +322,10 @@ public class AndraxiaEventPersistenceTests
     {
         using var clock = new SimulationClock(StartUtc);
         using var context = new TestContext();
+        var survivor = (Serial)42u;
+        context.Encounter.Existing.Add(survivor);
         context.Persistence.Deserialize(
-            CreateVersionOneReader(EventLifecycleState.Active, StartUtc, StartUtc.AddMinutes(5), null)
+            CreateVersionTwoReader(EventLifecycleState.Active, StartUtc, StartUtc.AddMinutes(5), null, survivor)
         );
 
         context.Persistence.PostDeserialize();
@@ -302,6 +416,38 @@ public class AndraxiaEventPersistenceTests
         }
     );
 
+    private static BufferReader CreateVersionTwoReader(
+        EventLifecycleState state,
+        DateTime startedUtc,
+        DateTime expiresUtc,
+        DateTime? completedUtc,
+        params Serial[] ownedMobiles
+    ) => CreateReader(
+        writer =>
+        {
+            WriteHeader(writer, 2, 1);
+            WriteVersionZeroEntry(
+                writer,
+                FirstId.ToString(),
+                KnownEvents.BritainDisturbance.Value,
+                KnownEvents.Britain.Value,
+                EventLifecycleTokens.GetToken(state)
+            );
+            writer.Write(startedUtc);
+            writer.Write(expiresUtc);
+            writer.Write(completedUtc.HasValue);
+            if (completedUtc is { } completed)
+            {
+                writer.Write(completed);
+            }
+            writer.WriteEncodedInt(ownedMobiles.Length);
+            foreach (var serial in ownedMobiles)
+            {
+                writer.Write(serial);
+            }
+        }
+    );
+
     private static BufferReader CreateReader(Action<IGenericWriter> write)
     {
         var writer = new BufferWriter(new byte[256], true);
@@ -365,13 +511,15 @@ public class AndraxiaEventPersistenceTests
         {
             Events = events ?? new EventStore(KnownEvents.Definitions);
             WorldStates = new WorldStateStore(KnownWorldStates.Definitions);
-            Service = new AndraxiaEventService(Events, WorldStates);
+            Encounter = new TestEventEncounterSpawner();
+            Service = new AndraxiaEventService(Events, WorldStates, Encounter);
             Persistence = new AndraxiaEventPersistence(Events, WorldStates, Service);
         }
 
         public EventStore Events { get; }
         public WorldStateStore WorldStates { get; }
         public AndraxiaEventService Service { get; }
+        public TestEventEncounterSpawner Encounter { get; }
         public AndraxiaEventPersistence Persistence { get; }
 
         public void Dispose()

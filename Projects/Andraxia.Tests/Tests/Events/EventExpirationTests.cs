@@ -37,6 +37,8 @@ public class EventExpirationTests
         Assert.Equal(EventLifecycleState.Failed, GetInstance(context).State);
         Assert.Equal(expirationUtc, completedUtc);
         Assert.Equal(completedUtc, GetInstance(context).CompletedUtc);
+        Assert.Equal(BritainBrigandEncounter.EncounterSize, context.Encounter.Deleted.Count);
+        Assert.Empty(GetInstance(context).OwnedMobiles);
         AssertWorldState(context.WorldStates, WorldCondition.Normal);
     }
 
@@ -168,12 +170,14 @@ public class EventExpirationTests
         {
             Events = new EventStore(KnownEvents.Definitions);
             WorldStates = new WorldStateStore(KnownWorldStates.Definitions);
-            Service = new AndraxiaEventService(Events, WorldStates);
+            Encounter = new TestEventEncounterSpawner();
+            Service = new AndraxiaEventService(Events, WorldStates, Encounter);
         }
 
         public EventStore Events { get; }
         public WorldStateStore WorldStates { get; }
         public AndraxiaEventService Service { get; }
+        public TestEventEncounterSpawner Encounter { get; }
 
         public void Dispose() => Service.StopExpirationTimer();
     }

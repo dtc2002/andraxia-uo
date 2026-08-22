@@ -16,6 +16,8 @@
             <IncludeInPackage>false</IncludeInPackage>
         </ProjectReference>
         <PackageReference Update="Serilog" Version="4.4.0" />
+        <PackageReference Include="ModernUO.Serialization.Annotations" Version="2.14.2" />
+        <PackageReference Include="ModernUO.Serialization.Generator" Version="2.14.3" PrivateAssets="all" />
     </ItemGroup>
     <ItemGroup>
         <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
