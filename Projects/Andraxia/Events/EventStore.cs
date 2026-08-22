@@ -14,6 +14,15 @@ public enum EventTransitionFailure
     TerminalInstance
 }
 
+internal enum EventRestoreFailure
+{
+    None,
+    UnknownDefinition,
+    DuplicateInstance,
+    DuplicateActiveDefinitionOrTarget,
+    TargetMismatch
+}
+
 public readonly record struct EventTransitionResult(
     bool Succeeded,
     EventTransitionFailure Failure,
@@ -121,6 +130,46 @@ public sealed class EventStore
         _instances[instanceId] = current;
         return new EventTransitionResult(true, EventTransitionFailure.None, current, previous.State, requested);
     }
+
+    internal EventRestoreFailure Restore(
+        EventInstanceId instanceId,
+        EventDefinitionId definitionId,
+        EventTargetId targetId,
+        EventLifecycleState state
+    )
+    {
+        if (!_definitions.TryGetValue(definitionId, out var definition))
+        {
+            return EventRestoreFailure.UnknownDefinition;
+        }
+
+        if (_instances.ContainsKey(instanceId))
+        {
+            return EventRestoreFailure.DuplicateInstance;
+        }
+
+        if (definition.TargetId != targetId)
+        {
+            return EventRestoreFailure.TargetMismatch;
+        }
+
+        if (state == EventLifecycleState.Active)
+        {
+            foreach (var instance in _instances.Values)
+            {
+                if (instance.State == EventLifecycleState.Active &&
+                    (instance.DefinitionId == definitionId || instance.TargetId == targetId))
+                {
+                    return EventRestoreFailure.DuplicateActiveDefinitionOrTarget;
+                }
+            }
+        }
+
+        _instances.Add(instanceId, new EventInstance(instanceId, definitionId, targetId, state));
+        return EventRestoreFailure.None;
+    }
+
+    internal void Clear() => _instances.Clear();
 
     private EventTransitionResult Transition(EventInstanceId instanceId, EventLifecycleState requested)
     {

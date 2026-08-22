@@ -6,6 +6,7 @@ namespace Server.Andraxia;
 public static class AndraxiaAssembly
 {
     private static AndraxiaWorldStatePersistence _worldStatePersistence;
+    private static AndraxiaEventPersistence _eventPersistence;
 
     internal static WorldStateStore WorldStates { get; private set; }
     internal static EventStore Events { get; private set; }
@@ -22,6 +23,7 @@ public static class AndraxiaAssembly
         _worldStatePersistence = new AndraxiaWorldStatePersistence(WorldStates);
         Events = new EventStore(KnownEvents.Definitions);
         EventService = new AndraxiaEventService(Events, WorldStates);
+        _eventPersistence = new AndraxiaEventPersistence(Events, WorldStates);
         WorldStateCommands.Configure(WorldStates);
         EventCommands.Configure(EventService, Events);
     }
