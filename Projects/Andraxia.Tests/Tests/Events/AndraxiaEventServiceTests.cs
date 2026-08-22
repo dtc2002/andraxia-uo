@@ -1,21 +1,24 @@
 using System;
+using System.Collections.Generic;
 using Server.Andraxia;
 using Xunit;
 
 namespace Andraxia.Tests;
 
 [Collection("Sequential Andraxia Tests")]
-public class AndraxiaEventServiceTests
+public class AndraxiaEventServiceTests : IDisposable
 {
+    private static readonly DateTime StartUtc = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly EventInstanceId FirstId = new(Guid.Parse("11111111-1111-1111-1111-111111111111"));
     private static readonly EventInstanceId SecondId = new(Guid.Parse("22222222-2222-2222-2222-222222222222"));
+    private readonly List<AndraxiaEventService> _services = [];
 
     [Fact]
     public void TriggerChangesBritainToThreatenedAndCreatesActiveEvent()
     {
         var (service, events, worldStates) = CreateService();
 
-        var result = service.Trigger(KnownEvents.BritainDisturbance, FirstId);
+        var result = service.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc);
 
         Assert.True(result.Succeeded);
         Assert.True(events.TryGetInstance(FirstId, out var instance));
@@ -27,9 +30,9 @@ public class AndraxiaEventServiceTests
     public void FailedEventValidationDoesNotMutateBritain()
     {
         var (service, events, worldStates) = CreateService();
-        Assert.True(service.Trigger(KnownEvents.BritainDisturbance, FirstId).Succeeded);
+        Assert.True(service.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
 
-        var result = service.Trigger(KnownEvents.BritainDisturbance, SecondId);
+        var result = service.Trigger(KnownEvents.BritainDisturbance, SecondId, StartUtc);
 
         Assert.False(result.Succeeded);
         Assert.Null(result.WorldStateResult);
@@ -44,7 +47,7 @@ public class AndraxiaEventServiceTests
         var (service, events, worldStates) = CreateService();
         Assert.True(worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
 
-        var result = service.Trigger(KnownEvents.BritainDisturbance, FirstId);
+        var result = service.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc);
 
         Assert.False(result.Succeeded);
         Assert.Equal(WorldStateTransitionFailure.SameCondition, result.WorldStateResult?.Failure);
@@ -58,11 +61,11 @@ public class AndraxiaEventServiceTests
     public void TerminalTransitionRestoresBritainToNormal(EventLifecycleState terminalState)
     {
         var (service, events, worldStates) = CreateService();
-        Assert.True(service.Trigger(KnownEvents.BritainDisturbance, FirstId).Succeeded);
+        Assert.True(service.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
 
         var result = terminalState == EventLifecycleState.Succeeded
-            ? service.Complete(FirstId)
-            : service.Fail(FirstId);
+            ? service.Complete(FirstId, StartUtc.AddMinutes(1))
+            : service.Fail(FirstId, StartUtc.AddMinutes(1));
 
         Assert.True(result.Succeeded);
         Assert.True(events.TryGetInstance(FirstId, out var instance));
@@ -74,10 +77,10 @@ public class AndraxiaEventServiceTests
     public void RejectedCompletionWorldStateTransitionLeavesEventActive()
     {
         var (service, events, worldStates) = CreateService();
-        Assert.True(service.Trigger(KnownEvents.BritainDisturbance, FirstId).Succeeded);
+        Assert.True(service.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
         Assert.True(worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Normal).Succeeded);
 
-        var result = service.Complete(FirstId);
+        var result = service.Complete(FirstId, StartUtc.AddMinutes(1));
 
         Assert.False(result.Succeeded);
         Assert.Equal(WorldStateTransitionFailure.SameCondition, result.WorldStateResult?.Failure);
@@ -86,11 +89,21 @@ public class AndraxiaEventServiceTests
         AssertWorldState(worldStates, WorldCondition.Normal);
     }
 
-    private static (AndraxiaEventService Service, EventStore Events, WorldStateStore WorldStates) CreateService()
+    public void Dispose()
+    {
+        foreach (var service in _services)
+        {
+            service.StopExpirationTimer();
+        }
+    }
+
+    private (AndraxiaEventService Service, EventStore Events, WorldStateStore WorldStates) CreateService()
     {
         var events = new EventStore(KnownEvents.Definitions);
         var worldStates = new WorldStateStore(KnownWorldStates.Definitions);
-        return (new AndraxiaEventService(events, worldStates), events, worldStates);
+        var service = new AndraxiaEventService(events, worldStates);
+        _services.Add(service);
+        return (service, events, worldStates);
     }
 
     private static void AssertWorldState(WorldStateStore store, WorldCondition expected)

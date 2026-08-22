@@ -44,9 +44,13 @@ internal static class EventCommands
 
         foreach (var instance in instances)
         {
+            var completed = instance.CompletedUtc is { } completedUtc
+                ? $", completed {completedUtc:O}"
+                : null;
             e.Mobile.SendMessage(
                 $"{instance.Id}: {instance.DefinitionId}, target {instance.TargetId}, " +
-                $"state {EventLifecycleTokens.GetToken(instance.State)}"
+                $"state {EventLifecycleTokens.GetToken(instance.State)}, started {instance.StartedUtc:O}, " +
+                $"expires {instance.ExpiresUtc:O}{completed}"
             );
         }
     }

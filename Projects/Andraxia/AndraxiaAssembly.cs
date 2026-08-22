@@ -23,7 +23,7 @@ public static class AndraxiaAssembly
         _worldStatePersistence = new AndraxiaWorldStatePersistence(WorldStates);
         Events = new EventStore(KnownEvents.Definitions);
         EventService = new AndraxiaEventService(Events, WorldStates);
-        _eventPersistence = new AndraxiaEventPersistence(Events, WorldStates);
+        _eventPersistence = new AndraxiaEventPersistence(Events, WorldStates, EventService);
         WorldStateCommands.Configure(WorldStates);
         EventCommands.Configure(EventService, Events);
     }

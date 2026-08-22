@@ -6,6 +6,7 @@ namespace Andraxia.Tests;
 
 public class EventStoreTests
 {
+    private static readonly DateTime StartUtc = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly EventInstanceId FirstId = new(Guid.Parse("11111111-1111-1111-1111-111111111111"));
     private static readonly EventInstanceId SecondId = new(Guid.Parse("22222222-2222-2222-2222-222222222222"));
 
@@ -14,7 +15,7 @@ public class EventStoreTests
     {
         var store = CreateStore();
 
-        var result = store.Trigger(KnownEvents.BritainDisturbance, FirstId);
+        var result = store.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc);
 
         Assert.True(result.Succeeded);
         Assert.Equal(EventTransitionFailure.None, result.Failure);
@@ -22,6 +23,9 @@ public class EventStoreTests
         Assert.Equal(KnownEvents.BritainDisturbance, result.Instance.DefinitionId);
         Assert.Equal(KnownEvents.Britain, result.Instance.TargetId);
         Assert.Equal(EventLifecycleState.Active, result.Instance.State);
+        Assert.Equal(StartUtc, result.Instance.StartedUtc);
+        Assert.Equal(StartUtc + TimeSpan.FromMinutes(5), result.Instance.ExpiresUtc);
+        Assert.Null(result.Instance.CompletedUtc);
         Assert.Equal("11111111111111111111111111111111", result.Instance.Id.ToString());
     }
 
@@ -30,7 +34,7 @@ public class EventStoreTests
     {
         var store = CreateStore();
 
-        var result = store.Trigger(new EventDefinitionId("event.unknown"), FirstId);
+        var result = store.Trigger(new EventDefinitionId("event.unknown"), FirstId, StartUtc);
 
         Assert.False(result.Succeeded);
         Assert.Equal(EventTransitionFailure.UnknownDefinition, result.Failure);
@@ -41,9 +45,9 @@ public class EventStoreTests
     public void DuplicateActiveDefinitionOrTargetIsRejected()
     {
         var store = CreateStore();
-        Assert.True(store.Trigger(KnownEvents.BritainDisturbance, FirstId).Succeeded);
+        Assert.True(store.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
 
-        var result = store.Trigger(KnownEvents.BritainDisturbance, SecondId);
+        var result = store.Trigger(KnownEvents.BritainDisturbance, SecondId, StartUtc);
 
         Assert.False(result.Succeeded);
         Assert.Equal(EventTransitionFailure.DuplicateActiveDefinitionOrTarget, result.Failure);
@@ -57,25 +61,29 @@ public class EventStoreTests
     public void ActiveInstanceCanEnterTerminalState(EventLifecycleState terminalState)
     {
         var store = CreateStore();
-        Assert.True(store.Trigger(KnownEvents.BritainDisturbance, FirstId).Succeeded);
+        Assert.True(store.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
 
-        var result = terminalState == EventLifecycleState.Succeeded ? store.Complete(FirstId) : store.Fail(FirstId);
+        var completedUtc = StartUtc.AddMinutes(1);
+        var result = terminalState == EventLifecycleState.Succeeded
+            ? store.Complete(FirstId, completedUtc)
+            : store.Fail(FirstId, completedUtc);
 
         Assert.True(result.Succeeded);
         Assert.Equal(EventLifecycleState.Active, result.PreviousState);
         Assert.Equal(terminalState, result.RequestedState);
         Assert.Equal(terminalState, result.Instance.State);
+        Assert.Equal(completedUtc, result.Instance.CompletedUtc);
     }
 
     [Fact]
     public void SameStateAndTerminalTransitionsAreRejected()
     {
         var store = CreateStore();
-        Assert.True(store.Trigger(KnownEvents.BritainDisturbance, FirstId).Succeeded);
-        Assert.True(store.Complete(FirstId).Succeeded);
+        Assert.True(store.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
+        Assert.True(store.Complete(FirstId, StartUtc.AddMinutes(1)).Succeeded);
 
-        var same = store.Complete(FirstId);
-        var terminal = store.Fail(FirstId);
+        var same = store.Complete(FirstId, StartUtc.AddMinutes(2));
+        var terminal = store.Fail(FirstId, StartUtc.AddMinutes(2));
 
         Assert.Equal(EventTransitionFailure.SameState, same.Failure);
         Assert.Equal(EventTransitionFailure.TerminalInstance, terminal.Failure);
@@ -88,11 +96,21 @@ public class EventStoreTests
     {
         var store = CreateStore();
 
-        var result = store.Complete(FirstId);
+        var result = store.Complete(FirstId, StartUtc);
 
         Assert.False(result.Succeeded);
         Assert.Equal(EventTransitionFailure.UnknownInstance, result.Failure);
         Assert.Empty(store.EnumerateInstances());
+    }
+
+    [Fact]
+    public void NonUtcLifecycleTimeIsRejectedAsProgrammerError()
+    {
+        var store = CreateStore();
+
+        Assert.Throws<ArgumentException>(
+            () => store.Trigger(KnownEvents.BritainDisturbance, FirstId, DateTime.SpecifyKind(StartUtc, DateTimeKind.Local))
+        );
     }
 
     [Theory]

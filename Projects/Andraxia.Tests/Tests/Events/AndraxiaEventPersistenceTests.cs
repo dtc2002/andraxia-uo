@@ -9,38 +9,31 @@ namespace Andraxia.Tests;
 [Collection("Sequential Andraxia Tests")]
 public class AndraxiaEventPersistenceTests
 {
+    private static readonly DateTime StartUtc = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly EventInstanceId FirstId = new(Guid.Parse("11111111-1111-1111-1111-111111111111"));
 
     [Theory]
     [InlineData(EventLifecycleState.Active)]
     [InlineData(EventLifecycleState.Succeeded)]
     [InlineData(EventLifecycleState.Failed)]
-    public void VersionZeroRoundTripsEventLifecycleState(EventLifecycleState state)
+    public void VersionOneRoundTripsEventAndUtcTimestamps(EventLifecycleState state)
     {
         WithTemporaryDirectory(
             directory =>
             {
-                var sourceStore = CreateEventStore(state);
-                var source = CreatePersistence(sourceStore, CreateWorldStateStore());
-                var loadedStore = new EventStore(KnownEvents.Definitions);
-                var loaded = CreatePersistence(loadedStore, CreateWorldStateStore());
+                using var source = new TestContext(CreateEventStore(state));
+                using var loaded = new TestContext();
+                WritePayload(directory, source.Persistence.Serialize);
 
-                try
-                {
-                    WritePayload(directory, source.Serialize);
-                    loaded.Deserialize(directory, null);
-                    loaded.PostDeserialize();
+                loaded.Persistence.Deserialize(directory, null);
 
-                    Assert.True(loadedStore.TryGetInstance(FirstId, out var instance));
-                    Assert.Equal(KnownEvents.BritainDisturbance, instance.DefinitionId);
-                    Assert.Equal(KnownEvents.Britain, instance.TargetId);
-                    Assert.Equal(state, instance.State);
-                }
-                finally
-                {
-                    source.Unregister();
-                    loaded.Unregister();
-                }
+                var instance = Assert.Single(loaded.Events.EnumerateInstances());
+                Assert.Equal(state, instance.State);
+                Assert.Equal(StartUtc, instance.StartedUtc);
+                Assert.Equal(StartUtc.AddMinutes(5), instance.ExpiresUtc);
+                Assert.Equal(state == EventLifecycleState.Active ? null : StartUtc.AddMinutes(1), instance.CompletedUtc);
+                Assert.Equal(DateTimeKind.Utc, instance.StartedUtc.Kind);
+                Assert.Equal(DateTimeKind.Utc, instance.ExpiresUtc.Kind);
             }
         );
     }
@@ -51,110 +44,60 @@ public class AndraxiaEventPersistenceTests
         WithTemporaryDirectory(
             directory =>
             {
-                var store = CreateEventStore(EventLifecycleState.Active);
-                var persistence = CreatePersistence(store, CreateWorldStateStore());
+                using var clock = new SimulationClock(StartUtc);
+                using var context = new TestContext(CreateEventStore(EventLifecycleState.Active));
+                context.Persistence.Deserialize(directory, null);
+                context.Persistence.PostDeserialize();
 
-                try
-                {
-                    persistence.Deserialize(directory, null);
-                    persistence.PostDeserialize();
-
-                    Assert.Empty(store.EnumerateInstances());
-                }
-                finally
-                {
-                    persistence.Unregister();
-                }
+                Assert.Empty(context.Events.EnumerateInstances());
+                Assert.False(context.Service.Scheduler.TimerRunning);
             }
         );
     }
 
-    [Fact]
-    public void UnknownDefinitionIsIgnored()
+    [Theory]
+    [InlineData("not-a-guid", "event.test.britain-disturbance", "region.britain", "active")]
+    [InlineData("11111111111111111111111111111111", "event.unknown", "region.britain", "active")]
+    [InlineData("11111111111111111111111111111111", "event.test.britain-disturbance", "region.britain", "future")]
+    public void InvalidVersionZeroRecordIsIgnored(
+        string instanceId,
+        string definitionId,
+        string targetId,
+        string lifecycle
+    )
     {
-        AssertPayloadLoadsNoEvents(
-            writer => WriteEntry(
-                writer,
-                FirstId.ToString(),
-                "event.unknown",
-                KnownEvents.Britain.Value,
-                "active"
-            )
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        var reader = CreateReader(
+            writer =>
+            {
+                WriteHeader(writer, 0, 1);
+                WriteVersionZeroEntry(writer, instanceId, definitionId, targetId, lifecycle);
+            }
         );
-    }
 
-    [Fact]
-    public void UnknownLifecycleTokenIsIgnored()
-    {
-        AssertPayloadLoadsNoEvents(
-            writer => WriteEntry(
-                writer,
-                FirstId.ToString(),
-                KnownEvents.BritainDisturbance.Value,
-                KnownEvents.Britain.Value,
-                "future-state"
-            )
-        );
-    }
+        context.Persistence.Deserialize(reader);
 
-    [Fact]
-    public void MalformedInstanceIdentifierIsIgnored()
-    {
-        AssertPayloadLoadsNoEvents(
-            writer => WriteEntry(
-                writer,
-                "not-a-guid",
-                KnownEvents.BritainDisturbance.Value,
-                KnownEvents.Britain.Value,
-                "active"
-            )
-        );
+        Assert.Empty(context.Events.EnumerateInstances());
     }
 
     [Fact]
     public void DuplicateInstanceIdentifierUsesFirstEntry()
     {
-        WithTemporaryDirectory(
-            directory =>
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        var reader = CreateReader(
+            writer =>
             {
-                WritePayload(
-                    directory,
-                    writer =>
-                    {
-                        WriteHeader(writer, 2);
-                        WriteEntry(
-                            writer,
-                            FirstId.ToString(),
-                            KnownEvents.BritainDisturbance.Value,
-                            KnownEvents.Britain.Value,
-                            "succeeded"
-                        );
-                        WriteEntry(
-                            writer,
-                            FirstId.ToString(),
-                            KnownEvents.BritainDisturbance.Value,
-                            KnownEvents.Britain.Value,
-                            "failed"
-                        );
-                    }
-                );
-                var store = new EventStore(KnownEvents.Definitions);
-                var persistence = CreatePersistence(store, CreateWorldStateStore());
-
-                try
-                {
-                    persistence.Deserialize(directory, null);
-                    persistence.PostDeserialize();
-
-                    var instance = Assert.Single(store.EnumerateInstances());
-                    Assert.Equal(EventLifecycleState.Succeeded, instance.State);
-                }
-                finally
-                {
-                    persistence.Unregister();
-                }
+                WriteHeader(writer, 0, 2);
+                WriteVersionZeroEntry(writer, FirstId.ToString(), KnownEvents.BritainDisturbance.Value, KnownEvents.Britain.Value, "succeeded");
+                WriteVersionZeroEntry(writer, FirstId.ToString(), KnownEvents.BritainDisturbance.Value, KnownEvents.Britain.Value, "failed");
             }
         );
+
+        context.Persistence.Deserialize(reader);
+
+        Assert.Equal(EventLifecycleState.Succeeded, Assert.Single(context.Events.EnumerateInstances()).State);
     }
 
     [Theory]
@@ -162,14 +105,16 @@ public class AndraxiaEventPersistenceTests
     [InlineData(AndraxiaEventPersistence.MaxEntryCount + 1)]
     public void InvalidEntryCountIsRejected(int count)
     {
-        AssertPayloadRejected(
+        using var context = new TestContext();
+        var reader = CreateReader(
             writer =>
             {
                 writer.WriteEncodedInt(AndraxiaEventPersistence.CurrentVersion);
                 writer.WriteEncodedInt(count);
-            },
-            "Invalid AndraxiaEvents entry count"
+            }
         );
+
+        Assert.Throws<InvalidDataException>(() => context.Persistence.Deserialize(reader));
     }
 
     [Fact]
@@ -180,196 +125,188 @@ public class AndraxiaEventPersistenceTests
             {
                 var path = WritePayload(
                     directory,
-                    writer =>
-                    {
-                        writer.WriteEncodedInt(AndraxiaEventPersistence.CurrentVersion + 1);
-                        writer.WriteEncodedInt(0);
-                    }
+                    writer => WriteHeader(writer, AndraxiaEventPersistence.CurrentVersion + 1, 0)
                 );
                 var original = File.ReadAllBytes(path);
-                var persistence = CreatePersistence(new EventStore(KnownEvents.Definitions), CreateWorldStateStore());
+                using var context = new TestContext();
 
-                try
-                {
-                    var exception = Assert.Throws<InvalidDataException>(
-                        () => persistence.Deserialize(new BufferReader(original))
-                    );
+                var exception = Assert.Throws<InvalidDataException>(
+                    () => context.Persistence.Deserialize(new BufferReader(original))
+                );
 
-                    Assert.Contains("Unsupported AndraxiaEvents format version", exception.Message);
-                    Assert.Equal(original, File.ReadAllBytes(path));
-                }
-                finally
-                {
-                    persistence.Unregister();
-                }
+                Assert.Contains("Unsupported AndraxiaEvents format version", exception.Message);
+                Assert.Equal(original, File.ReadAllBytes(path));
             }
         );
     }
 
     [Fact]
-    public void ActiveAndThreatenedReconciliationIsNoOp()
+    public void VersionZeroActiveReceivesFreshDurationAtMigration()
     {
-        var events = CreateEventStore(EventLifecycleState.Active);
-        var worldStates = CreateWorldStateStore();
-        Assert.True(worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
-        var persistence = CreatePersistence(events, worldStates);
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
 
-        try
-        {
-            persistence.ReconcileWorldState();
+        context.Persistence.Deserialize(CreateVersionZeroReader(EventLifecycleState.Active));
 
-            AssertWorldState(worldStates, WorldCondition.Threatened);
-            Assert.Equal(EventLifecycleState.Active, Assert.Single(events.EnumerateInstances()).State);
-        }
-        finally
-        {
-            persistence.Unregister();
-        }
-    }
-
-    [Fact]
-    public void ActiveAndNormalReconciliationRestoresThreatened()
-    {
-        var events = CreateEventStore(EventLifecycleState.Active);
-        var worldStates = CreateWorldStateStore();
-        var persistence = CreatePersistence(events, worldStates);
-
-        try
-        {
-            persistence.ReconcileWorldState();
-
-            AssertWorldState(worldStates, WorldCondition.Threatened);
-            Assert.Equal(EventLifecycleState.Active, Assert.Single(events.EnumerateInstances()).State);
-        }
-        finally
-        {
-            persistence.Unregister();
-        }
-    }
-
-    [Fact]
-    public void MissingActiveAndThreatenedDoesNotNormalize()
-    {
-        var events = new EventStore(KnownEvents.Definitions);
-        var worldStates = CreateWorldStateStore();
-        Assert.True(worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
-        var persistence = CreatePersistence(events, worldStates);
-
-        try
-        {
-            persistence.ReconcileWorldState();
-
-            Assert.Empty(events.EnumerateInstances());
-            AssertWorldState(worldStates, WorldCondition.Threatened);
-        }
-        finally
-        {
-            persistence.Unregister();
-        }
+        var instance = Assert.Single(context.Events.EnumerateInstances());
+        Assert.Equal(StartUtc, instance.StartedUtc);
+        Assert.Equal(StartUtc.AddMinutes(5), instance.ExpiresUtc);
+        Assert.Null(instance.CompletedUtc);
     }
 
     [Theory]
     [InlineData(EventLifecycleState.Succeeded)]
     [InlineData(EventLifecycleState.Failed)]
-    public void TerminalAndThreatenedDoesNotNormalize(EventLifecycleState state)
+    public void VersionZeroTerminalUsesMigrationInstantAsSyntheticCompletion(EventLifecycleState state)
     {
-        var events = CreateEventStore(state);
-        var worldStates = CreateWorldStateStore();
-        Assert.True(worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
-        var persistence = CreatePersistence(events, worldStates);
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
 
-        try
-        {
-            persistence.ReconcileWorldState();
+        context.Persistence.Deserialize(CreateVersionZeroReader(state));
 
-            Assert.Equal(state, Assert.Single(events.EnumerateInstances()).State);
-            AssertWorldState(worldStates, WorldCondition.Threatened);
-        }
-        finally
-        {
-            persistence.Unregister();
-        }
+        var instance = Assert.Single(context.Events.EnumerateInstances());
+        Assert.Equal(StartUtc.AddMinutes(-5), instance.StartedUtc);
+        Assert.Equal(StartUtc, instance.ExpiresUtc);
+        Assert.Equal(StartUtc, instance.CompletedUtc);
     }
 
-    private static void AssertPayloadLoadsNoEvents(Action<IGenericWriter> writeEntry)
+    [Fact]
+    public void OverdueVersionOneEventFailsDuringRecovery()
     {
-        WithTemporaryDirectory(
-            directory =>
-            {
-                WritePayload(
-                    directory,
-                    writer =>
-                    {
-                        WriteHeader(writer, 1);
-                        writeEntry(writer);
-                    }
-                );
-                var store = new EventStore(KnownEvents.Definitions);
-                var persistence = CreatePersistence(store, CreateWorldStateStore());
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        Assert.True(context.WorldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
+        context.Persistence.Deserialize(
+            CreateVersionOneReader(EventLifecycleState.Active, StartUtc.AddMinutes(-10), StartUtc.AddMinutes(-5), null)
+        );
 
-                try
-                {
-                    persistence.Deserialize(directory, null);
-                    persistence.PostDeserialize();
-                    Assert.Empty(store.EnumerateInstances());
-                }
-                finally
-                {
-                    persistence.Unregister();
-                }
-            }
+        context.Persistence.PostDeserialize();
+
+        var instance = Assert.Single(context.Events.EnumerateInstances());
+        Assert.Equal(EventLifecycleState.Failed, instance.State);
+        Assert.Equal(StartUtc, instance.CompletedUtc);
+        AssertWorldState(context.WorldStates, WorldCondition.Normal);
+        Assert.False(context.Service.Scheduler.TimerRunning);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void MalformedVersionOneTimestampInvariantIsRejected(bool expiresBeforeStart, bool activeHasCompletion)
+    {
+        using var context = new TestContext();
+        var expires = expiresBeforeStart ? StartUtc.AddMinutes(-1) : StartUtc.AddMinutes(5);
+        DateTime? completed = activeHasCompletion ? StartUtc.AddMinutes(1) : null;
+
+        Assert.Throws<InvalidDataException>(
+            () => context.Persistence.Deserialize(
+                CreateVersionOneReader(EventLifecycleState.Active, StartUtc, expires, completed)
+            )
         );
     }
 
-    private static void AssertPayloadRejected(Action<IGenericWriter> write, string expectedMessage)
+    [Fact]
+    public void ActiveAndNormalReconciliationRestoresThreatenedAndArmsTimer()
     {
-        WithTemporaryDirectory(
-            directory =>
-            {
-                var path = WritePayload(directory, write);
-                var persistence = CreatePersistence(new EventStore(KnownEvents.Definitions), CreateWorldStateStore());
-
-                try
-                {
-                    var exception = Assert.Throws<InvalidDataException>(
-                        () => persistence.Deserialize(new BufferReader(File.ReadAllBytes(path)))
-                    );
-                    Assert.Contains(expectedMessage, exception.Message);
-                }
-                finally
-                {
-                    persistence.Unregister();
-                }
-            }
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        context.Persistence.Deserialize(
+            CreateVersionOneReader(EventLifecycleState.Active, StartUtc, StartUtc.AddMinutes(5), null)
         );
+
+        context.Persistence.PostDeserialize();
+
+        AssertWorldState(context.WorldStates, WorldCondition.Threatened);
+        Assert.True(context.Service.Scheduler.TimerRunning);
+        Assert.Equal(StartUtc.AddMinutes(5), context.Service.Scheduler.NextExpirationUtc);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(EventLifecycleState.Succeeded)]
+    [InlineData(EventLifecycleState.Failed)]
+    public void NoActiveEventDoesNotNormalizeThreatened(EventLifecycleState? terminalState)
+    {
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        Assert.True(context.WorldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
+
+        if (terminalState is { } state)
+        {
+            context.Persistence.Deserialize(
+                CreateVersionOneReader(state, StartUtc.AddMinutes(-5), StartUtc, StartUtc)
+            );
+        }
+
+        context.Persistence.PostDeserialize();
+
+        AssertWorldState(context.WorldStates, WorldCondition.Threatened);
+        Assert.False(context.Service.Scheduler.TimerRunning);
     }
 
     private static EventStore CreateEventStore(EventLifecycleState state)
     {
         var store = new EventStore(KnownEvents.Definitions);
-        Assert.True(store.Trigger(KnownEvents.BritainDisturbance, FirstId).Succeeded);
+        Assert.True(store.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
 
         if (state == EventLifecycleState.Succeeded)
         {
-            Assert.True(store.Complete(FirstId).Succeeded);
+            Assert.True(store.Complete(FirstId, StartUtc.AddMinutes(1)).Succeeded);
         }
         else if (state == EventLifecycleState.Failed)
         {
-            Assert.True(store.Fail(FirstId).Succeeded);
+            Assert.True(store.Fail(FirstId, StartUtc.AddMinutes(1)).Succeeded);
         }
 
         return store;
     }
 
-    private static AndraxiaEventPersistence CreatePersistence(EventStore events, WorldStateStore worldStates) =>
-        new(events, worldStates);
+    private static BufferReader CreateVersionZeroReader(EventLifecycleState state) =>
+        CreateReader(
+            writer =>
+            {
+                WriteHeader(writer, 0, 1);
+                WriteVersionZeroEntry(
+                    writer,
+                    FirstId.ToString(),
+                    KnownEvents.BritainDisturbance.Value,
+                    KnownEvents.Britain.Value,
+                    EventLifecycleTokens.GetToken(state)
+                );
+            }
+        );
 
-    private static WorldStateStore CreateWorldStateStore() => new(KnownWorldStates.Definitions);
+    private static BufferReader CreateVersionOneReader(
+        EventLifecycleState state,
+        DateTime startedUtc,
+        DateTime expiresUtc,
+        DateTime? completedUtc
+    ) => CreateReader(
+        writer =>
+        {
+            WriteHeader(writer, 1, 1);
+            WriteVersionZeroEntry(
+                writer,
+                FirstId.ToString(),
+                KnownEvents.BritainDisturbance.Value,
+                KnownEvents.Britain.Value,
+                EventLifecycleTokens.GetToken(state)
+            );
+            writer.Write(startedUtc);
+            writer.Write(expiresUtc);
+            writer.Write(completedUtc.HasValue);
+            if (completedUtc is { } completed)
+            {
+                writer.Write(completed);
+            }
+        }
+    );
 
-    private static void AssertWorldState(WorldStateStore store, WorldCondition expected)
+    private static BufferReader CreateReader(Action<IGenericWriter> write)
     {
-        Assert.True(store.TryGetState(KnownWorldStates.Britain, out var condition));
-        Assert.Equal(expected, condition);
+        var writer = new BufferWriter(new byte[256], true);
+        write(writer);
+        return new BufferReader(writer.Buffer);
     }
 
     private static string WritePayload(string directory, Action<IGenericWriter> write)
@@ -377,19 +314,18 @@ public class AndraxiaEventPersistenceTests
         var persistenceDirectory = Path.Combine(directory, AndraxiaEventPersistence.PersistenceName);
         Directory.CreateDirectory(persistenceDirectory);
         var path = Path.Combine(persistenceDirectory, $"{AndraxiaEventPersistence.PersistenceName}.bin");
-
         using var writer = new FileBufferWriter(path);
         write(writer);
         return path;
     }
 
-    private static void WriteHeader(IGenericWriter writer, int count)
+    private static void WriteHeader(IGenericWriter writer, int version, int count)
     {
-        writer.WriteEncodedInt(AndraxiaEventPersistence.CurrentVersion);
+        writer.WriteEncodedInt(version);
         writer.WriteEncodedInt(count);
     }
 
-    private static void WriteEntry(
+    private static void WriteVersionZeroEntry(
         IGenericWriter writer,
         string instanceId,
         string definitionId,
@@ -403,11 +339,16 @@ public class AndraxiaEventPersistenceTests
         writer.Write(lifecycle);
     }
 
+    private static void AssertWorldState(WorldStateStore store, WorldCondition expected)
+    {
+        Assert.True(store.TryGetState(KnownWorldStates.Britain, out var condition));
+        Assert.Equal(expected, condition);
+    }
+
     private static void WithTemporaryDirectory(Action<string> test)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"andraxia-events-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-
         try
         {
             test(directory);
@@ -415,6 +356,28 @@ public class AndraxiaEventPersistenceTests
         finally
         {
             Directory.Delete(directory, true);
+        }
+    }
+
+    private sealed class TestContext : IDisposable
+    {
+        public TestContext(EventStore events = null)
+        {
+            Events = events ?? new EventStore(KnownEvents.Definitions);
+            WorldStates = new WorldStateStore(KnownWorldStates.Definitions);
+            Service = new AndraxiaEventService(Events, WorldStates);
+            Persistence = new AndraxiaEventPersistence(Events, WorldStates, Service);
+        }
+
+        public EventStore Events { get; }
+        public WorldStateStore WorldStates { get; }
+        public AndraxiaEventService Service { get; }
+        public AndraxiaEventPersistence Persistence { get; }
+
+        public void Dispose()
+        {
+            Service.StopExpirationTimer();
+            Persistence.Unregister();
         }
     }
 }

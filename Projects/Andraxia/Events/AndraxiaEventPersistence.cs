@@ -8,18 +8,24 @@ namespace Server.Andraxia;
 
 public sealed class AndraxiaEventPersistence : GenericPersistence
 {
-    internal const int CurrentVersion = 0;
+    internal const int CurrentVersion = 1;
     internal const string PersistenceName = "AndraxiaEvents";
     internal const int MaxEntryCount = 10_000;
 
     private static readonly ILogger logger = LogFactory.GetLogger(typeof(AndraxiaEventPersistence));
     private readonly EventStore _events;
     private readonly WorldStateStore _worldStates;
+    private readonly AndraxiaEventService _service;
 
-    public AndraxiaEventPersistence(EventStore events, WorldStateStore worldStates) : base(PersistenceName, 10)
+    public AndraxiaEventPersistence(
+        EventStore events,
+        WorldStateStore worldStates,
+        AndraxiaEventService service
+    ) : base(PersistenceName, 10)
     {
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _worldStates = worldStates ?? throw new ArgumentNullException(nameof(worldStates));
+        _service = service ?? throw new ArgumentNullException(nameof(service));
     }
 
     public override void Serialize(IGenericWriter writer)
@@ -35,6 +41,14 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             writer.Write(instance.DefinitionId.Value);
             writer.Write(instance.TargetId.Value);
             writer.Write(EventLifecycleTokens.GetToken(instance.State));
+            writer.Write(instance.StartedUtc);
+            writer.Write(instance.ExpiresUtc);
+            writer.Write(instance.CompletedUtc.HasValue);
+
+            if (instance.CompletedUtc is { } completedUtc)
+            {
+                writer.Write(completedUtc);
+            }
         }
     }
 
@@ -49,10 +63,10 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
         _events.Clear();
 
         var version = reader.ReadEncodedInt();
-        if (version != CurrentVersion)
+        if (version is < 0 or > CurrentVersion)
         {
             throw new InvalidDataException(
-                $"Unsupported {PersistenceName} format version {version}; expected {CurrentVersion}."
+                $"Unsupported {PersistenceName} format version {version}; latest supported version is {CurrentVersion}."
             );
         }
 
@@ -63,12 +77,26 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
         }
 
         var seen = new HashSet<EventInstanceId>();
+        var migrationUtc = Core.Now;
         for (var i = 0; i < count; i++)
         {
             var instanceToken = reader.ReadString();
             var definitionToken = reader.ReadString();
             var targetToken = reader.ReadString();
             var lifecycleToken = reader.ReadString();
+            var startedUtc = default(DateTime);
+            var expiresUtc = default(DateTime);
+            DateTime? completedUtc = null;
+
+            if (version >= 1)
+            {
+                startedUtc = reader.ReadDateTime();
+                expiresUtc = reader.ReadDateTime();
+                if (reader.ReadBool())
+                {
+                    completedUtc = reader.ReadDateTime();
+                }
+            }
 
             if (!EventInstanceId.TryParse(instanceToken, out var instanceId))
             {
@@ -106,7 +134,43 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
 
             var definitionId = new EventDefinitionId(definitionToken);
             var targetId = new EventTargetId(targetToken);
-            var failure = _events.Restore(instanceId, definitionId, targetId, state);
+
+            if (!_events.TryGetDefinition(definitionId, out var definition))
+            {
+                logger.Warning(
+                    "Ignoring persisted event {Identifier} for unknown definition {Definition}",
+                    instanceId,
+                    definitionId
+                );
+                continue;
+            }
+
+            if (version == 0)
+            {
+                if (state == EventLifecycleState.Active)
+                {
+                    startedUtc = migrationUtc;
+                    expiresUtc = migrationUtc + definition.Duration;
+                }
+                else
+                {
+                    startedUtc = migrationUtc - definition.Duration;
+                    expiresUtc = migrationUtc;
+                    completedUtc = migrationUtc;
+                }
+            }
+
+            ValidateTimestamps(instanceId, state, startedUtc, expiresUtc, completedUtc);
+
+            var failure = _events.Restore(
+                instanceId,
+                definitionId,
+                targetId,
+                state,
+                startedUtc,
+                expiresUtc,
+                completedUtc
+            );
 
             if (failure != EventRestoreFailure.None)
             {
@@ -120,7 +184,11 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
         }
     }
 
-    public override void PostDeserialize() => ReconcileWorldState();
+    public override void PostDeserialize()
+    {
+        ReconcileWorldState();
+        _service.Advance(Core.Now);
+    }
 
     internal void ReconcileWorldState()
     {
@@ -172,6 +240,28 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 "Britain is Threatened with no active Andraxia Britain-disturbance event; " +
                 "leaving world state unchanged for administrative inspection"
             );
+        }
+    }
+
+    private static void ValidateTimestamps(
+        EventInstanceId instanceId,
+        EventLifecycleState state,
+        DateTime startedUtc,
+        DateTime expiresUtc,
+        DateTime? completedUtc
+    )
+    {
+        var valid =
+            startedUtc.Kind == DateTimeKind.Utc &&
+            expiresUtc.Kind == DateTimeKind.Utc &&
+            expiresUtc > startedUtc &&
+            (completedUtc == null || completedUtc.Value.Kind == DateTimeKind.Utc) &&
+            (completedUtc == null || completedUtc.Value >= startedUtc) &&
+            (state == EventLifecycleState.Active ? completedUtc == null : completedUtc != null);
+
+        if (!valid)
+        {
+            throw new InvalidDataException($"Invalid timestamp data for persisted event {instanceId}.");
         }
     }
 }

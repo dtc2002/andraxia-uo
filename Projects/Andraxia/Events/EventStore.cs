@@ -53,19 +53,18 @@ public sealed class EventStore
 
     public IEnumerable<EventInstance> EnumerateInstances() => _instances.Values;
 
-    public EventTransitionResult Trigger(EventDefinitionId definitionId) => Trigger(definitionId, EventInstanceId.New());
-
-    public EventTransitionResult Trigger(EventDefinitionId definitionId, EventInstanceId instanceId)
+    public EventTransitionResult Trigger(EventDefinitionId definitionId, EventInstanceId instanceId, DateTime nowUtc)
     {
+        ValidateUtc(nowUtc, nameof(nowUtc));
         var validation = ValidateTrigger(definitionId, instanceId);
-        return validation.Succeeded ? TriggerValidated(definitionId, instanceId) : validation;
+        return validation.Succeeded ? TriggerValidated(definitionId, instanceId, nowUtc) : validation;
     }
 
-    public EventTransitionResult Complete(EventInstanceId instanceId) =>
-        Transition(instanceId, EventLifecycleState.Succeeded);
+    public EventTransitionResult Complete(EventInstanceId instanceId, DateTime nowUtc) =>
+        Transition(instanceId, EventLifecycleState.Succeeded, nowUtc);
 
-    public EventTransitionResult Fail(EventInstanceId instanceId) =>
-        Transition(instanceId, EventLifecycleState.Failed);
+    public EventTransitionResult Fail(EventInstanceId instanceId, DateTime nowUtc) =>
+        Transition(instanceId, EventLifecycleState.Failed, nowUtc);
 
     internal EventTransitionResult ValidateTrigger(EventDefinitionId definitionId, EventInstanceId instanceId)
     {
@@ -116,17 +115,35 @@ public sealed class EventStore
         return new EventTransitionResult(true, EventTransitionFailure.None, instance, instance.State, requested);
     }
 
-    internal EventTransitionResult TriggerValidated(EventDefinitionId definitionId, EventInstanceId instanceId)
+    internal EventTransitionResult TriggerValidated(
+        EventDefinitionId definitionId,
+        EventInstanceId instanceId,
+        DateTime nowUtc
+    )
     {
-        var instance = new EventInstance(instanceId, _definitions[definitionId]);
+        ValidateUtc(nowUtc, nameof(nowUtc));
+        var instance = new EventInstance(instanceId, _definitions[definitionId], nowUtc);
         _instances.Add(instanceId, instance);
         return new EventTransitionResult(true, EventTransitionFailure.None, instance, null, EventLifecycleState.Active);
     }
 
-    internal EventTransitionResult TransitionValidated(EventInstanceId instanceId, EventLifecycleState requested)
+    internal EventTransitionResult TransitionValidated(
+        EventInstanceId instanceId,
+        EventLifecycleState requested,
+        DateTime nowUtc
+    )
     {
+        ValidateUtc(nowUtc, nameof(nowUtc));
         var previous = _instances[instanceId];
-        var current = new EventInstance(instanceId, previous.DefinitionId, previous.TargetId, requested);
+        var current = new EventInstance(
+            instanceId,
+            previous.DefinitionId,
+            previous.TargetId,
+            requested,
+            previous.StartedUtc,
+            previous.ExpiresUtc,
+            nowUtc
+        );
         _instances[instanceId] = current;
         return new EventTransitionResult(true, EventTransitionFailure.None, current, previous.State, requested);
     }
@@ -135,7 +152,10 @@ public sealed class EventStore
         EventInstanceId instanceId,
         EventDefinitionId definitionId,
         EventTargetId targetId,
-        EventLifecycleState state
+        EventLifecycleState state,
+        DateTime startedUtc,
+        DateTime expiresUtc,
+        DateTime? completedUtc
     )
     {
         if (!_definitions.TryGetValue(definitionId, out var definition))
@@ -165,16 +185,35 @@ public sealed class EventStore
             }
         }
 
-        _instances.Add(instanceId, new EventInstance(instanceId, definitionId, targetId, state));
+        _instances.Add(
+            instanceId,
+            new EventInstance(instanceId, definitionId, targetId, state, startedUtc, expiresUtc, completedUtc)
+        );
         return EventRestoreFailure.None;
     }
 
+    internal bool TryGetDefinition(EventDefinitionId id, out EventDefinition definition) =>
+        _definitions.TryGetValue(id, out definition);
+
     internal void Clear() => _instances.Clear();
 
-    private EventTransitionResult Transition(EventInstanceId instanceId, EventLifecycleState requested)
+    private EventTransitionResult Transition(
+        EventInstanceId instanceId,
+        EventLifecycleState requested,
+        DateTime nowUtc
+    )
     {
+        ValidateUtc(nowUtc, nameof(nowUtc));
         var validation = ValidateTransition(instanceId, requested);
-        return validation.Succeeded ? TransitionValidated(instanceId, requested) : validation;
+        return validation.Succeeded ? TransitionValidated(instanceId, requested, nowUtc) : validation;
+    }
+
+    private static void ValidateUtc(DateTime value, string parameterName)
+    {
+        if (value.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException("Event time must be UTC.", parameterName);
+        }
     }
 
     private static EventTransitionResult Failure(

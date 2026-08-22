@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
@@ -9,7 +10,7 @@ public static class KnownEvents
     public static readonly EventTargetId Britain = new("region.britain");
 
     private static readonly ReadOnlyCollection<EventDefinition> _definitions = new(
-        [new EventDefinition(BritainDisturbance, Britain)]
+        [new EventDefinition(BritainDisturbance, Britain, TimeSpan.FromMinutes(5))]
     );
 
     public static IReadOnlyList<EventDefinition> Definitions => _definitions;
