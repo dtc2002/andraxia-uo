@@ -11,6 +11,7 @@ public enum EventTransitionFailure
     UnknownDefinition,
     DuplicateInstance,
     DuplicateActiveDefinitionOrTarget,
+    UnknownEncounterLocation,
     EncounterSpawnFailed,
     UnknownInstance,
     SameState,
@@ -122,11 +123,12 @@ public sealed class EventStore
         EventDefinitionId definitionId,
         EventInstanceId instanceId,
         DateTime nowUtc,
-        IReadOnlyCollection<Serial> ownedMobiles = null
+        IReadOnlyCollection<Serial> ownedMobiles = null,
+        EncounterLocationId? selectedLocationId = null
     )
     {
         ValidateUtc(nowUtc, nameof(nowUtc));
-        var instance = new EventInstance(instanceId, _definitions[definitionId], nowUtc, ownedMobiles);
+        var instance = new EventInstance(instanceId, _definitions[definitionId], nowUtc, ownedMobiles, selectedLocationId);
         _instances.Add(instanceId, instance);
         return new EventTransitionResult(true, EventTransitionFailure.None, instance, null, EventLifecycleState.Active);
     }
@@ -147,7 +149,8 @@ public sealed class EventStore
             previous.StartedUtc,
             previous.ExpiresUtc,
             nowUtc,
-            previous.OwnedMobiles
+            previous.OwnedMobiles,
+            previous.SelectedLocationId
         );
         _instances[instanceId] = current;
         return new EventTransitionResult(true, EventTransitionFailure.None, current, previous.State, requested);
@@ -161,7 +164,8 @@ public sealed class EventStore
         DateTime startedUtc,
         DateTime expiresUtc,
         DateTime? completedUtc,
-        IReadOnlyCollection<Serial> ownedMobiles = null
+        IReadOnlyCollection<Serial> ownedMobiles = null,
+        EncounterLocationId? selectedLocationId = null
     )
     {
         if (!_definitions.TryGetValue(definitionId, out var definition))
@@ -193,7 +197,17 @@ public sealed class EventStore
 
         _instances.Add(
             instanceId,
-            new EventInstance(instanceId, definitionId, targetId, state, startedUtc, expiresUtc, completedUtc, ownedMobiles)
+            new EventInstance(
+                instanceId,
+                definitionId,
+                targetId,
+                state,
+                startedUtc,
+                expiresUtc,
+                completedUtc,
+                ownedMobiles,
+                selectedLocationId
+            )
         );
         return EventRestoreFailure.None;
     }
@@ -236,7 +250,8 @@ public sealed class EventStore
             instance.StartedUtc,
             instance.ExpiresUtc,
             instance.CompletedUtc,
-            ownedMobiles
+            ownedMobiles,
+            instance.SelectedLocationId
         );
         _instances[instance.Id] = updated;
         return updated;

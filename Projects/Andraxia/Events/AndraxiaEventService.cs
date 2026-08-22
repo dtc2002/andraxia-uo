@@ -20,9 +20,10 @@ public sealed class AndraxiaEventService
     private readonly WorldStateStore _worldStates;
     private readonly AndraxiaEventExpirationScheduler _scheduler;
     private readonly IEventEncounterSpawner _encounter;
+    private readonly IEncounterLocationSelector _locationSelector;
 
     public AndraxiaEventService(EventStore events, WorldStateStore worldStates) :
-        this(events, worldStates, new BritainBrigandEncounter())
+        this(events, worldStates, new BritainBrigandEncounter(), new DeterministicEncounterLocationSelector())
     {
     }
 
@@ -30,21 +31,41 @@ public sealed class AndraxiaEventService
         EventStore events,
         WorldStateStore worldStates,
         IEventEncounterSpawner encounter
+    ) : this(events, worldStates, encounter, new DeterministicEncounterLocationSelector())
+    {
+    }
+
+    internal AndraxiaEventService(
+        EventStore events,
+        WorldStateStore worldStates,
+        IEventEncounterSpawner encounter,
+        IEncounterLocationSelector locationSelector
     )
     {
         _events = events;
         _worldStates = worldStates;
         _encounter = encounter ?? throw new ArgumentNullException(nameof(encounter));
+        _locationSelector = locationSelector ?? throw new ArgumentNullException(nameof(locationSelector));
         _scheduler = new AndraxiaEventExpirationScheduler(events, Advance);
     }
 
     public AndraxiaEventResult Trigger(EventDefinitionId definitionId) =>
         Trigger(definitionId, EventInstanceId.New(), Core.Now);
 
+    public AndraxiaEventResult Trigger(EventDefinitionId definitionId, EncounterLocationId locationId) =>
+        Trigger(definitionId, EventInstanceId.New(), Core.Now, locationId);
+
     public AndraxiaEventResult Trigger(
         EventDefinitionId definitionId,
         EventInstanceId instanceId,
         DateTime nowUtc
+    ) => Trigger(definitionId, instanceId, nowUtc, null);
+
+    internal AndraxiaEventResult Trigger(
+        EventDefinitionId definitionId,
+        EventInstanceId instanceId,
+        DateTime nowUtc,
+        EncounterLocationId? forcedLocationId
     )
     {
         ValidateUtc(nowUtc);
@@ -54,6 +75,27 @@ public sealed class AndraxiaEventService
             return new AndraxiaEventResult(validation, null);
         }
 
+        EncounterLocation location;
+        if (forcedLocationId is { } locationId)
+        {
+            if (definitionId != KnownEvents.BritainDisturbance ||
+                !KnownEncounterLocations.TryGet(locationId, out location))
+            {
+                return new AndraxiaEventResult(
+                    validation with { Succeeded = false, Failure = EventTransitionFailure.UnknownEncounterLocation },
+                    null
+                );
+            }
+        }
+        else
+        {
+            location = _locationSelector.Select(
+                definitionId,
+                instanceId,
+                KnownEncounterLocations.BritainDisturbance
+            );
+        }
+
         var worldStateResult = _worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened);
         if (!worldStateResult.Succeeded)
         {
@@ -61,7 +103,7 @@ public sealed class AndraxiaEventService
         }
 
         var spawned = new List<Serial>(BritainBrigandEncounter.EncounterSize);
-        if (!_encounter.TrySpawn(spawned, out var spawnFailure))
+        if (!_encounter.TrySpawn(location, spawned, out var spawnFailure))
         {
             foreach (var serial in spawned)
             {
@@ -86,7 +128,7 @@ public sealed class AndraxiaEventService
         }
 
         var result = new AndraxiaEventResult(
-            _events.TriggerValidated(definitionId, instanceId, nowUtc, spawned),
+            _events.TriggerValidated(definitionId, instanceId, nowUtc, spawned, location.Id),
             worldStateResult
         );
         _scheduler.Rearm(nowUtc);

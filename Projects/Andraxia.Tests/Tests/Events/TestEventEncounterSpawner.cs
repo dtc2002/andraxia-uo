@@ -12,15 +12,26 @@ internal sealed class TestEventEncounterSpawner : IEventEncounterSpawner
     public int SpawnBeforeFailure { get; set; }
     public HashSet<Serial> Existing { get; } = [];
     public List<Serial> Deleted { get; } = [];
+    public EncounterLocation SelectedLocation { get; private set; }
+    public List<Point3D> SpawnedPositions { get; } = [];
 
-    public bool TrySpawn(ICollection<Serial> spawned, out string failure)
+    public bool TrySpawn(EncounterLocation location, ICollection<Serial> spawned, out string failure)
     {
+        SelectedLocation = location;
         var count = SpawnSucceeds ? BritainBrigandEncounter.EncounterSize : SpawnBeforeFailure;
         for (var i = 0; i < count; i++)
         {
             var serial = (Serial)_nextSerial++;
             spawned.Add(serial);
             Existing.Add(serial);
+            SpawnedPositions.Add(
+                i switch
+                {
+                    0 => location.Anchor,
+                    1 => new Point3D(location.X + 3, location.Y + 2, location.Z),
+                    _ => new Point3D(location.X + 6, location.Y, location.Z)
+                }
+            );
         }
 
         failure = SpawnSucceeds ? null : "Test spawn failure";

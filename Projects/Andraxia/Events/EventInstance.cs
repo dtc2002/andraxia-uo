@@ -11,7 +11,8 @@ public sealed class EventInstance
         EventInstanceId id,
         EventDefinition definition,
         DateTime startedUtc,
-        IReadOnlyCollection<Serial> ownedMobiles = null
+        IReadOnlyCollection<Serial> ownedMobiles = null,
+        EncounterLocationId? selectedLocationId = null
     ) :
         this(
             id,
@@ -21,7 +22,8 @@ public sealed class EventInstance
             startedUtc,
             startedUtc + definition.Duration,
             null,
-            ownedMobiles
+            ownedMobiles,
+            selectedLocationId
         )
     {
     }
@@ -34,7 +36,8 @@ public sealed class EventInstance
         DateTime startedUtc,
         DateTime expiresUtc,
         DateTime? completedUtc,
-        IReadOnlyCollection<Serial> ownedMobiles = null
+        IReadOnlyCollection<Serial> ownedMobiles = null,
+        EncounterLocationId? selectedLocationId = null
     )
     {
         ValidateTimestamp(startedUtc, nameof(startedUtc));
@@ -72,6 +75,7 @@ public sealed class EventInstance
         ExpiresUtc = expiresUtc;
         CompletedUtc = completedUtc;
         OwnedMobiles = new ReadOnlyCollection<Serial>([.. ownedMobiles ?? []]);
+        SelectedLocationId = selectedLocationId;
     }
 
     public EventInstanceId Id { get; }
@@ -82,6 +86,7 @@ public sealed class EventInstance
     public DateTime ExpiresUtc { get; }
     public DateTime? CompletedUtc { get; }
     public IReadOnlyList<Serial> OwnedMobiles { get; }
+    public EncounterLocationId? SelectedLocationId { get; }
 
     private static void ValidateTimestamp(DateTime value, string parameterName)
     {

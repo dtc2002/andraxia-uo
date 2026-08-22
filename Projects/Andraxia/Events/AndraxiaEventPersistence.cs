@@ -8,7 +8,7 @@ namespace Server.Andraxia;
 
 public sealed class AndraxiaEventPersistence : GenericPersistence
 {
-    internal const int CurrentVersion = 2;
+    internal const int CurrentVersion = 3;
     internal const string PersistenceName = "AndraxiaEvents";
     internal const int MaxEntryCount = 10_000;
     internal const int MaxOwnedMobileCount = 100;
@@ -56,6 +56,12 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             {
                 writer.Write(serial);
             }
+
+            writer.Write(instance.SelectedLocationId.HasValue);
+            if (instance.SelectedLocationId is { } locationId)
+            {
+                writer.Write(locationId.Value);
+            }
         }
     }
 
@@ -95,6 +101,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             var expiresUtc = default(DateTime);
             DateTime? completedUtc = null;
             Serial[] ownedMobiles = [];
+            EncounterLocationId? selectedLocationId = null;
 
             if (version >= 1)
             {
@@ -120,6 +127,28 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 for (var ownedIndex = 0; ownedIndex < ownedCount; ownedIndex++)
                 {
                     ownedMobiles[ownedIndex] = reader.ReadSerial();
+                }
+            }
+
+            if (version >= 3 && reader.ReadBool())
+            {
+                var locationToken = reader.ReadString();
+                if (string.IsNullOrWhiteSpace(locationToken))
+                {
+                    throw new InvalidDataException(
+                        $"Invalid empty encounter-location identifier for persisted event {instanceToken}."
+                    );
+                }
+
+                selectedLocationId = new EncounterLocationId(locationToken);
+                if (!KnownEncounterLocations.TryGet(selectedLocationId.Value, out _))
+                {
+                    logger.Error(
+                        "Persisted event {Identifier} references unknown encounter location {Location}; " +
+                        "retaining the event and location without selecting a replacement",
+                        instanceToken,
+                        selectedLocationId.Value
+                    );
                 }
             }
 
@@ -195,7 +224,8 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 startedUtc,
                 expiresUtc,
                 completedUtc,
-                ownedMobiles
+                ownedMobiles,
+                selectedLocationId
             );
 
             if (failure != EventRestoreFailure.None)

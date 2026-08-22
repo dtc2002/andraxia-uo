@@ -17,7 +17,7 @@ public class AndraxiaEventPersistenceTests
     [InlineData(EventLifecycleState.Active)]
     [InlineData(EventLifecycleState.Succeeded)]
     [InlineData(EventLifecycleState.Failed)]
-    public void VersionTwoRoundTripsEventAndUtcTimestamps(EventLifecycleState state)
+    public void VersionThreeRoundTripsEventAndUtcTimestamps(EventLifecycleState state)
     {
         WithTemporaryDirectory(
             directory =>
@@ -40,18 +40,21 @@ public class AndraxiaEventPersistenceTests
     }
 
     [Fact]
-    public void VersionTwoRoundTripsOwnedMobileSerials()
+    public void VersionThreeRoundTripsOwnedMobilesAndSelectedLocation()
     {
         using var source = new TestContext();
         using var loaded = new TestContext();
         Assert.True(source.Service.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
         var expected = Assert.Single(source.Events.EnumerateInstances()).OwnedMobiles.ToArray();
+        var expectedLocation = Assert.Single(source.Events.EnumerateInstances()).SelectedLocationId;
         var writer = new BufferWriter(new byte[512], true);
         source.Persistence.Serialize(writer);
 
         loaded.Persistence.Deserialize(new BufferReader(writer.Buffer));
 
-        Assert.Equal(expected, Assert.Single(loaded.Events.EnumerateInstances()).OwnedMobiles);
+        var instance = Assert.Single(loaded.Events.EnumerateInstances());
+        Assert.Equal(expected, instance.OwnedMobiles);
+        Assert.Equal(expectedLocation, instance.SelectedLocationId);
     }
 
     [Fact]
@@ -169,6 +172,7 @@ public class AndraxiaEventPersistenceTests
         Assert.Equal(StartUtc.AddMinutes(5), instance.ExpiresUtc);
         Assert.Null(instance.CompletedUtc);
         Assert.Empty(instance.OwnedMobiles);
+        Assert.Null(instance.SelectedLocationId);
     }
 
     [Fact]
@@ -181,6 +185,79 @@ public class AndraxiaEventPersistenceTests
         );
 
         Assert.Empty(Assert.Single(context.Events.EnumerateInstances()).OwnedMobiles);
+        Assert.Null(Assert.Single(context.Events.EnumerateInstances()).SelectedLocationId);
+    }
+
+    [Fact]
+    public void VersionTwoMigratesWithNoSelectedLocation()
+    {
+        using var context = new TestContext();
+
+        context.Persistence.Deserialize(
+            CreateVersionTwoReader(
+                EventLifecycleState.Active,
+                StartUtc,
+                StartUtc.AddMinutes(5),
+                null,
+                (Serial)42u
+            )
+        );
+
+        Assert.Null(Assert.Single(context.Events.EnumerateInstances()).SelectedLocationId);
+    }
+
+    [Fact]
+    public void VersionThreeRestartPreservesSelectedLocationWithoutReroll()
+    {
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        var survivor = (Serial)42u;
+        context.Encounter.Existing.Add(survivor);
+        Assert.True(context.WorldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
+        context.Persistence.Deserialize(
+            CreateVersionThreeReader(
+                EventLifecycleState.Active,
+                StartUtc,
+                StartUtc.AddMinutes(5),
+                KnownEncounterLocations.BritainGraveyardEast,
+                survivor
+            )
+        );
+
+        context.Persistence.PostDeserialize();
+
+        Assert.Equal(
+            KnownEncounterLocations.BritainGraveyardEast,
+            Assert.Single(context.Events.EnumerateInstances()).SelectedLocationId
+        );
+        Assert.Null(context.Encounter.SelectedLocation);
+    }
+
+    [Fact]
+    public void UnknownVersionThreeLocationIsRetainedWithoutReplacement()
+    {
+        using var clock = new SimulationClock(StartUtc);
+        using var context = new TestContext();
+        var survivor = (Serial)42u;
+        var unknown = new EncounterLocationId("location.britain.retired");
+        context.Encounter.Existing.Add(survivor);
+        Assert.True(context.WorldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
+        context.Persistence.Deserialize(
+            CreateVersionThreeReader(
+                EventLifecycleState.Active,
+                StartUtc,
+                StartUtc.AddMinutes(5),
+                unknown,
+                survivor
+            )
+        );
+
+        context.Persistence.PostDeserialize();
+
+        var instance = Assert.Single(context.Events.EnumerateInstances());
+        Assert.Equal(EventLifecycleState.Active, instance.State);
+        Assert.Equal(unknown, instance.SelectedLocationId);
+        Assert.Null(context.Encounter.SelectedLocation);
     }
 
     [Theory]
@@ -444,6 +521,39 @@ public class AndraxiaEventPersistenceTests
             foreach (var serial in ownedMobiles)
             {
                 writer.Write(serial);
+            }
+        }
+    );
+
+    private static BufferReader CreateVersionThreeReader(
+        EventLifecycleState state,
+        DateTime startedUtc,
+        DateTime expiresUtc,
+        EncounterLocationId? selectedLocationId,
+        params Serial[] ownedMobiles
+    ) => CreateReader(
+        writer =>
+        {
+            WriteHeader(writer, 3, 1);
+            WriteVersionZeroEntry(
+                writer,
+                FirstId.ToString(),
+                KnownEvents.BritainDisturbance.Value,
+                KnownEvents.Britain.Value,
+                EventLifecycleTokens.GetToken(state)
+            );
+            writer.Write(startedUtc);
+            writer.Write(expiresUtc);
+            writer.Write(false);
+            writer.WriteEncodedInt(ownedMobiles.Length);
+            foreach (var serial in ownedMobiles)
+            {
+                writer.Write(serial);
+            }
+            writer.Write(selectedLocationId.HasValue);
+            if (selectedLocationId is { } locationId)
+            {
+                writer.Write(locationId.Value);
             }
         }
     );

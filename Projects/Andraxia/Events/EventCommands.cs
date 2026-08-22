@@ -54,6 +54,21 @@ internal static class EventCommands
                 $"remaining {instance.OwnedMobiles.Count(serial => World.FindMobile(serial) is { Deleted: false })}"
             );
 
+            if (instance.SelectedLocationId is not { } locationId)
+            {
+                e.Mobile.SendMessage("  Location=- Map=- Anchor=-");
+            }
+            else if (KnownEncounterLocations.TryGet(locationId, out var location))
+            {
+                e.Mobile.SendMessage(
+                    $"  Location={locationId} Map={location.Map.Name} Anchor={location.X},{location.Y},{location.Z}"
+                );
+            }
+            else
+            {
+                e.Mobile.SendMessage($"  Location={locationId} Map=? Anchor=?");
+            }
+
             if (instance.State != EventLifecycleState.Active)
             {
                 continue;
@@ -76,18 +91,22 @@ internal static class EventCommands
         }
     }
 
-    [Usage("AndraxiaEventTrigger event.test.britain-disturbance")]
+    [Usage("AndraxiaEventTrigger event.test.britain-disturbance [location-id]")]
     [Description("Triggers the approved Andraxia test event.")]
     private static void TriggerEvent_OnCommand(CommandEventArgs e)
     {
-        if (e.Length != 1 || string.IsNullOrWhiteSpace(e.GetString(0)))
+        if (e.Length is < 1 or > 2 ||
+            string.IsNullOrWhiteSpace(e.GetString(0)) ||
+            e.Length == 2 && string.IsNullOrWhiteSpace(e.GetString(1)))
         {
-            e.Mobile.SendMessage("Usage: AndraxiaEventTrigger event.test.britain-disturbance");
+            e.Mobile.SendMessage("Usage: AndraxiaEventTrigger event.test.britain-disturbance [location-id]");
             return;
         }
 
         var definitionId = new EventDefinitionId(e.GetString(0));
-        var result = _service.Trigger(definitionId);
+        var result = e.Length == 2
+            ? _service.Trigger(definitionId, new EncounterLocationId(e.GetString(1)))
+            : _service.Trigger(definitionId);
         if (!result.Succeeded)
         {
             SendFailure(e, result);
@@ -95,10 +114,13 @@ internal static class EventCommands
         }
 
         var instance = result.EventResult.Instance;
-        CommandLogging.WriteLine(e.Mobile, $"triggered Andraxia event '{instance.DefinitionId}' as '{instance.Id}'");
+        CommandLogging.WriteLine(
+            e.Mobile,
+            $"triggered Andraxia event '{instance.DefinitionId}' as '{instance.Id}' at '{instance.SelectedLocationId}'"
+        );
         e.Mobile.SendMessage(
             $"Triggered {instance.DefinitionId} as {instance.Id}; state " +
-            $"{EventLifecycleTokens.GetToken(instance.State)}."
+            $"{EventLifecycleTokens.GetToken(instance.State)}, location {instance.SelectedLocationId}."
         );
     }
 
