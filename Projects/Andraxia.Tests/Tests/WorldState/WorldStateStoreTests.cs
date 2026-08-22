@@ -30,6 +30,37 @@ public class WorldStateStoreTests
     }
 
     [Fact]
+    public void ThreatenedToNormalSucceeds()
+    {
+        var store = CreateStore();
+        Assert.True(store.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
+
+        var result = store.Transition(KnownWorldStates.Britain, WorldCondition.Normal);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(WorldStateTransitionFailure.None, result.Failure);
+        Assert.Equal(WorldCondition.Threatened, result.PreviousCondition);
+        Assert.Equal(WorldCondition.Normal, result.RequestedCondition);
+        Assert.True(store.TryGetState(KnownWorldStates.Britain, out var condition));
+        Assert.Equal(WorldCondition.Normal, condition);
+    }
+
+    [Fact]
+    public void ThreatenedToOccupiedFailsWithoutMutation()
+    {
+        var store = CreateStore();
+        Assert.True(store.Transition(KnownWorldStates.Britain, WorldCondition.Threatened).Succeeded);
+
+        var result = store.Transition(KnownWorldStates.Britain, WorldCondition.Occupied);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(WorldStateTransitionFailure.TransitionNotAllowed, result.Failure);
+        Assert.Equal(WorldCondition.Threatened, result.PreviousCondition);
+        Assert.True(store.TryGetState(KnownWorldStates.Britain, out var condition));
+        Assert.Equal(WorldCondition.Threatened, condition);
+    }
+
+    [Fact]
     public void NormalToOccupiedFailsWithoutMutation()
     {
         var store = CreateStore();

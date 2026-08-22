@@ -62,7 +62,11 @@ public sealed class WorldStateStore
             );
         }
 
-        if (current is not WorldCondition.Normal || requested is not WorldCondition.Threatened)
+        var transitionAllowed =
+            current is WorldCondition.Normal && requested is WorldCondition.Threatened ||
+            current is WorldCondition.Threatened && requested is WorldCondition.Normal;
+
+        if (!transitionAllowed)
         {
             return new WorldStateTransitionResult(
                 false,
