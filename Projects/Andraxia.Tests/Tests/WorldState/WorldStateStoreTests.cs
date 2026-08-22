@@ -87,5 +87,20 @@ public class WorldStateStoreTests
         Assert.Equal(WorldCondition.Normal, secondReset);
     }
 
+    [Theory]
+    [InlineData("threatened", WorldCondition.Threatened)]
+    [InlineData("occupied", WorldCondition.Occupied)]
+    public void StableConditionTokensParseForAdministrativeTransitions(string token, WorldCondition expected)
+    {
+        Assert.True(WorldConditionTokens.TryParse(token, out var condition));
+        Assert.Equal(expected, condition);
+    }
+
+    [Fact]
+    public void UnknownAdministrativeConditionTokenIsRejected()
+    {
+        Assert.False(WorldConditionTokens.TryParse("unknown-condition", out _));
+    }
+
     private static WorldStateStore CreateStore() => new(KnownWorldStates.Definitions);
 }
