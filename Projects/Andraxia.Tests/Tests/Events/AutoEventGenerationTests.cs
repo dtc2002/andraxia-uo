@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Server;
 using Server.Andraxia;
 using Xunit;
 
@@ -102,6 +103,54 @@ public sealed class AutoEventGenerationTests
         Assert.Null(result.TriggerResult);
         Assert.Empty(context.Events.EnumerateInstances());
         AssertState(context.WorldStates, WorldCondition.Normal);
+    }
+
+    [Fact]
+    public void ZeroPlayersDefersWithoutPhysicalEventAndConsumesOnlyNextDelayDraw()
+    {
+        var events = new EventStore(KnownEvents.Definitions);
+        var states = new WorldStateStore(KnownWorldStates.Definitions);
+        var encounter = new TestEventEncounterSpawner();
+        var pressure = new RegionalPressureStore();
+        var service = new AndraxiaEventService(
+            events, states, [encounter], new DeterministicEncounterLocationSelector(),
+            static () => 0, NullEventAwareness.Instance, pressure
+        );
+        var random = new SequenceAutoEventRandom([0.0, 0.25]);
+        var generator = new AndraxiaAutoEventGenerator(events, states, service, random, pressure);
+        try
+        {
+            generator.Enable(StartUtc);
+            var callsBefore = random.CallCount;
+
+            var result = generator.Evaluate(StartUtc.AddMinutes(5));
+
+            Assert.True(result.Evaluated);
+            Assert.False(result.Eligible);
+            Assert.Equal(AutoEventEligibility.NoPlayers, generator.Eligibility);
+            Assert.Equal(1, random.CallCount - callsBefore);
+            Assert.Empty(events.EnumerateInstances());
+            Assert.Empty(encounter.SpawnedPositions);
+            Assert.Equal(25, pressure.Britain);
+            AssertState(states, WorldCondition.Normal);
+            Assert.True(generator.TimerRunning);
+            Assert.NotNull(generator.NextEvaluationUtc);
+        }
+        finally
+        {
+            generator.StopTimer();
+            service.StopExpirationTimer();
+        }
+    }
+
+    [Theory]
+    [InlineData(AccessLevel.Owner, false)]
+    [InlineData(AccessLevel.Administrator, false)]
+    [InlineData(AccessLevel.GameMaster, false)]
+    [InlineData(AccessLevel.Player, true)]
+    public void OnlyOrdinaryPlayersMeetThePopulationRule(AccessLevel accessLevel, bool expected)
+    {
+        Assert.Equal(expected, OnlinePlayerCounter.IsOrdinaryPlayer(true, accessLevel));
     }
 
     [Fact]

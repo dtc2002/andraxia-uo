@@ -4,15 +4,32 @@ namespace Server.Andraxia;
 
 public enum RegionalPressureClassification { Stable, Normal, Elevated, Severe }
 
+public readonly record struct RegionalPressureChange(int Delta, string Reason);
+
 public sealed class RegionalPressureStore
 {
     public const int DefaultBritainPressure = 25;
     public const int MaximumPressure = 100;
     public int Britain { get; private set; } = DefaultBritainPressure;
+    public RegionalPressureChange? LastChange { get; private set; }
 
-    public int SetBritain(int value) => Britain = Math.Clamp(value, 0, MaximumPressure);
-    public int AdjustBritain(int delta) => SetBritain(Britain + delta);
-    public void Reset() => Britain = DefaultBritainPressure;
+    public int SetBritain(int value, string reason = null)
+    {
+        var previous = Britain;
+        Britain = Math.Clamp(value, 0, MaximumPressure);
+        if (Britain != previous && reason != null)
+        {
+            LastChange = new RegionalPressureChange(Britain - previous, reason);
+        }
+        return Britain;
+    }
+
+    public int AdjustBritain(int delta, string reason = null) => SetBritain(Britain + delta, reason);
+    public void Reset()
+    {
+        Britain = DefaultBritainPressure;
+        LastChange = null;
+    }
 
     public static RegionalPressureClassification Classify(int value) => value switch
     {

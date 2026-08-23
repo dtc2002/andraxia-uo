@@ -28,6 +28,8 @@ internal readonly record struct AutoEventEvaluationResult(
     AndraxiaEventResult? TriggerResult
 );
 
+internal enum AutoEventEligibility { Disabled, NoPlayers, RegionNotNormal, ActiveTargetEvent, Eligible }
+
 internal sealed class AndraxiaAutoEventScheduler(Action<DateTime> evaluate)
 {
     private TimerExecutionToken _token;
@@ -87,6 +89,8 @@ internal sealed class AndraxiaAutoEventGenerator
     internal DateTime? NextEvaluationUtc { get; private set; }
     internal ulong RandomState => _random.State;
     internal bool TimerRunning => _scheduler.TimerRunning;
+    internal int OrdinaryPlayerCount => _eventService.OrdinaryPlayerCount;
+    internal AutoEventEligibility Eligibility => GetEligibility();
 
     internal bool Enable(DateTime nowUtc)
     {
@@ -114,7 +118,7 @@ internal sealed class AndraxiaAutoEventGenerator
         return true;
     }
 
-    internal bool IsEligible() => GetEligibleDefinitions().Length != 0;
+    internal bool IsEligible() => GetEligibility() == AutoEventEligibility.Eligible;
 
     internal AutoEventEvaluationResult Evaluate(DateTime nowUtc)
     {
@@ -124,8 +128,9 @@ internal sealed class AndraxiaAutoEventGenerator
             return new AutoEventEvaluationResult(false, false, false, null, null);
         }
 
-        var eligibleDefinitions = GetEligibleDefinitions();
-        var eligible = eligibleDefinitions.Length != 0;
+        var eligibility = GetEligibility();
+        var eligibleDefinitions = eligibility == AutoEventEligibility.Eligible ? GetKnownEligibleDefinitions() : [];
+        var eligible = eligibility == AutoEventEligibility.Eligible && eligibleDefinitions.Length != 0;
         var probabilityPassed = eligible &&
                                 _random.NextDouble() < RegionalPressureStore.TriggerProbability(_pressure.Britain);
         EventDefinitionId? selectedDefinitionId = null;
@@ -194,23 +199,44 @@ internal sealed class AndraxiaAutoEventGenerator
 
     internal EventDefinitionId[] GetEligibleDefinitions()
     {
-        if (!Enabled ||
-            !_worldStates.TryGetState(KnownWorldStates.Britain, out var condition) ||
-            condition != WorldCondition.Normal ||
-            _events.EnumerateInstances().Any(
-                static instance =>
-                    instance.State == EventLifecycleState.Active && instance.TargetId == KnownEvents.Britain
-            ))
+        if (GetEligibility() != AutoEventEligibility.Eligible)
         {
             return [];
         }
 
-        return KnownEvents.AutomaticDefinitions
+        return GetKnownEligibleDefinitions();
+    }
+
+    private EventDefinitionId[] GetKnownEligibleDefinitions() =>
+        KnownEvents.AutomaticDefinitions
             .Where(definitionId =>
                 _events.TryGetDefinition(definitionId, out _) && _eventService.HasEncounterHandler(definitionId)
             )
             .OrderBy(static definitionId => definitionId.Value, StringComparer.Ordinal)
             .ToArray();
+
+    private AutoEventEligibility GetEligibility()
+    {
+        if (!Enabled)
+        {
+            return AutoEventEligibility.Disabled;
+        }
+        if (_eventService.OrdinaryPlayerCount == 0)
+        {
+            return AutoEventEligibility.NoPlayers;
+        }
+        if (!_worldStates.TryGetState(KnownWorldStates.Britain, out var condition) ||
+            condition != WorldCondition.Normal)
+        {
+            return AutoEventEligibility.RegionNotNormal;
+        }
+        if (_events.EnumerateInstances().Any(
+                static instance => instance.State == EventLifecycleState.Active && instance.TargetId == KnownEvents.Britain
+            ))
+        {
+            return AutoEventEligibility.ActiveTargetEvent;
+        }
+        return AutoEventEligibility.Eligible;
     }
 
     private void ScheduleNext(DateTime nowUtc)

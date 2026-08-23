@@ -57,7 +57,7 @@ public sealed class AndraxiaEventService
         worldStates,
         [encounter],
         new DeterministicEncounterLocationSelector(),
-        static () => 0,
+        static () => 1,
         NullEventAwareness.Instance
     )
     {
@@ -68,7 +68,7 @@ public sealed class AndraxiaEventService
         WorldStateStore worldStates,
         IEventEncounterSpawner encounter,
         IEncounterLocationSelector locationSelector
-    ) : this(events, worldStates, [encounter], locationSelector, static () => 0, NullEventAwareness.Instance)
+    ) : this(events, worldStates, [encounter], locationSelector, static () => 1, NullEventAwareness.Instance)
     {
     }
 
@@ -93,7 +93,7 @@ public sealed class AndraxiaEventService
             }
         }
         _locationSelector = locationSelector ?? throw new ArgumentNullException(nameof(locationSelector));
-        _ordinaryPlayerCount = ordinaryPlayerCount ?? (static () => 0);
+        _ordinaryPlayerCount = ordinaryPlayerCount ?? (static () => 1);
         _awareness = awareness ?? NullEventAwareness.Instance;
         _participation = new EventParticipationTracker(events);
         Pressure = pressure ?? new RegionalPressureStore();
@@ -409,6 +409,7 @@ public sealed class AndraxiaEventService
     internal bool IsRumorRegistered(EventInstanceId instanceId) => _awareness.IsRumorRegistered(instanceId);
     internal EventParticipationTracker Participation => _participation;
     internal RegionalPressureStore Pressure { get; }
+    internal int OrdinaryPlayerCount => _ordinaryPlayerCount();
     internal EventOutcomeConsequences Consequences => _consequences;
     internal void CaptureParticipation(Mobile creature) => _participation.Capture(creature);
     internal void RetryPendingRewards()

@@ -378,5 +378,10 @@ internal static class EventCommands
             $"{AndraxiaAutoEventGenerator.MaximumDelay.TotalMinutes:0}m, " +
             $"chance {RegionalPressureStore.TriggerProbability(_service.Pressure.Britain):P0}"
         );
+        e.Mobile.SendMessage($"Ordinary players online: {_autoEvents.OrdinaryPlayerCount}");
+        var populationStatus = _autoEvents.Eligibility == AutoEventEligibility.NoPlayers
+            ? "Waiting for players"
+            : _autoEvents.OrdinaryPlayerCount > 0 ? "Eligible" : "Waiting for players";
+        e.Mobile.SendMessage($"Population eligibility: {populationStatus}");
     }
 }

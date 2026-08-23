@@ -15,8 +15,14 @@ internal sealed class EventOutcomeConsequences(RegionalPressureStore pressure)
     {
         var current = Get(id);
         if (current.Applied) return;
-        if (source == EventOutcomeSource.CombatSuccess) pressure.AdjustBritain(-5);
-        else if (source == EventOutcomeSource.AutomaticFailure) pressure.AdjustBritain(10);
+        if (source == EventOutcomeSource.CombatSuccess)
+        {
+            pressure.AdjustBritain(-5, "Event cleared");
+        }
+        else if (source == EventOutcomeSource.AutomaticFailure)
+        {
+            pressure.AdjustBritain(10, "Event expired");
+        }
         _states[id] = new EventConsequence(source, true);
     }
 

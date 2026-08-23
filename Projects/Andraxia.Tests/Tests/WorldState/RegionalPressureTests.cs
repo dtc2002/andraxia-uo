@@ -128,7 +128,7 @@ public sealed class RegionalPressureTests : IDisposable
         var encounter = new TestEventEncounterSpawner();
         _service = new AndraxiaEventService(
             events, states, [encounter], new DeterministicEncounterLocationSelector(),
-            static () => 0, NullEventAwareness.Instance, pressure
+            static () => 1, NullEventAwareness.Instance, pressure
         );
         var random = new CountingRandom(0.40);
         var generator = new AndraxiaAutoEventGenerator(events, states, _service, random, pressure);
@@ -147,6 +147,147 @@ public sealed class RegionalPressureTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(25, 25)]
+    [InlineData(26, 25)]
+    [InlineData(24, 25)]
+    [InlineData(70, 69)]
+    [InlineData(0, 1)]
+    public void StabilizationMovesOnePointTowardBaseline(int initial, int expected)
+    {
+        var pressure = new RegionalPressureStore();
+        pressure.SetBritain(initial);
+        var stabilizer = new RegionalPressureStabilizer(pressure);
+        stabilizer.Restore(StartUtc);
+        try
+        {
+            stabilizer.Recover(StartUtc);
+            Assert.Equal(expected, pressure.Britain);
+            Assert.Equal(StartUtc.AddMinutes(30), stabilizer.NextRecoveryUtc);
+        }
+        finally
+        {
+            stabilizer.StopTimer();
+        }
+    }
+
+    [Theory]
+    [InlineData(70, 6, 64)]
+    [InlineData(27, 20, 25)]
+    [InlineData(0, 100, 25)]
+    public void OfflineRecoveryAppliesElapsedIntervalsMathematically(int initial, int intervals, int expected)
+    {
+        var pressure = new RegionalPressureStore();
+        pressure.SetBritain(initial);
+        var stabilizer = new RegionalPressureStabilizer(pressure);
+        stabilizer.Restore(StartUtc.AddMinutes(30));
+        try
+        {
+            stabilizer.Recover(StartUtc.AddMinutes(30 * intervals));
+            Assert.Equal(expected, pressure.Britain);
+            Assert.True(stabilizer.NextRecoveryUtc > StartUtc.AddMinutes(30 * intervals));
+        }
+        finally
+        {
+            stabilizer.StopTimer();
+        }
+    }
+
+    [Fact]
+    public void FutureRecoveryRearmsWithoutApplyingEarly()
+    {
+        var pressure = new RegionalPressureStore();
+        pressure.SetBritain(70);
+        var stabilizer = new RegionalPressureStabilizer(pressure);
+        stabilizer.Restore(StartUtc.AddMinutes(30));
+        try
+        {
+            stabilizer.Recover(StartUtc);
+            Assert.Equal(70, pressure.Britain);
+            Assert.True(stabilizer.TimerRunning);
+        }
+        finally
+        {
+            stabilizer.StopTimer();
+        }
+    }
+
+    [Fact]
+    public void StabilizationDoesNotAlterActiveEventOrWorldCondition()
+    {
+        var context = CreateContext();
+        context.Pressure.SetBritain(70);
+        var result = context.Service.Trigger(KnownEvents.BritainDisturbance, EventInstanceId.New(), StartUtc);
+        var stabilizer = new RegionalPressureStabilizer(context.Pressure);
+        stabilizer.Restore(StartUtc.AddMinutes(30));
+        try
+        {
+            stabilizer.Recover(StartUtc.AddMinutes(30));
+            Assert.Equal(69, context.Pressure.Britain);
+            Assert.Equal(EventLifecycleState.Active, result.EventResult.Instance.State);
+            Assert.True(context.WorldStates.TryGetState(KnownWorldStates.Britain, out var condition));
+            Assert.Equal(WorldCondition.Threatened, condition);
+        }
+        finally
+        {
+            stabilizer.StopTimer();
+        }
+    }
+
+    [Fact]
+    public void VersionZeroMigrationRetainsPressureAndStartsNewSchedule()
+    {
+        using var clock = new SimulationClock(StartUtc);
+        var directory = Path.Combine(Path.GetTempPath(), $"andraxia-pressure-v0-{Guid.NewGuid():N}");
+        var persistenceDirectory = Path.Combine(directory, RegionalPressurePersistence.PersistenceName);
+        Directory.CreateDirectory(persistenceDirectory);
+        var store = new RegionalPressureStore();
+        var stabilizer = new RegionalPressureStabilizer(store);
+        var persistence = new RegionalPressurePersistence(store, stabilizer);
+        try
+        {
+            using (var writer = new FileBufferWriter(Path.Combine(
+                       persistenceDirectory, $"{RegionalPressurePersistence.PersistenceName}.bin")))
+            {
+                writer.WriteEncodedInt(0);
+                writer.WriteEncodedInt(70);
+            }
+            persistence.Deserialize(directory, null);
+            Assert.Equal(70, store.Britain);
+            Assert.Equal(StartUtc.AddMinutes(30), stabilizer.NextRecoveryUtc);
+        }
+        finally
+        {
+            stabilizer.StopTimer();
+            persistence.Unregister();
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void MissingPersistenceDefaultsPressureAndStartsRecoverySchedule()
+    {
+        using var clock = new SimulationClock(StartUtc);
+        var directory = Path.Combine(Path.GetTempPath(), $"andraxia-pressure-missing-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var store = new RegionalPressureStore();
+        store.SetBritain(70);
+        var stabilizer = new RegionalPressureStabilizer(store);
+        var persistence = new RegionalPressurePersistence(store, stabilizer);
+        try
+        {
+            persistence.Deserialize(directory, null);
+            Assert.Equal(25, store.Britain);
+            Assert.Equal(StartUtc.AddMinutes(30), stabilizer.NextRecoveryUtc);
+        }
+        finally
+        {
+            stabilizer.StopTimer();
+            persistence.Unregister();
+            Directory.Delete(directory, true);
+        }
+    }
+
     private Context CreateContext()
     {
         var pressure = new RegionalPressureStore();
@@ -157,11 +298,15 @@ public sealed class RegionalPressureTests : IDisposable
             events, states, [encounter], new DeterministicEncounterLocationSelector(),
             static () => 0, NullEventAwareness.Instance, pressure
         );
-        return new Context(_service, pressure);
+        return new Context(_service, pressure, states);
     }
 
     public void Dispose() => _service?.StopExpirationTimer();
-    private sealed record Context(AndraxiaEventService Service, RegionalPressureStore Pressure);
+    private sealed record Context(
+        AndraxiaEventService Service,
+        RegionalPressureStore Pressure,
+        WorldStateStore WorldStates
+    );
 
     private sealed class CountingRandom(double value) : IAutoEventRandom
     {

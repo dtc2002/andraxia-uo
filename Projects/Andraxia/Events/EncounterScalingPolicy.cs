@@ -26,14 +26,20 @@ internal static class OnlinePlayerCounter
         HashSet<Serial> players = [];
         foreach (var state in NetState.Instances)
         {
-            if (state.Mobile is { Player: true, AccessLevel: AccessLevel.Player } mobile)
+            if (IsOrdinaryPlayer(state.Mobile))
             {
-                players.Add(mobile.Serial);
+                players.Add(state.Mobile.Serial);
             }
         }
 
         return players.Count;
     }
+
+    internal static bool IsOrdinaryPlayer(Mobile mobile) =>
+        mobile != null && IsOrdinaryPlayer(mobile.Player, mobile.AccessLevel);
+
+    internal static bool IsOrdinaryPlayer(bool player, AccessLevel accessLevel) =>
+        player && accessLevel == AccessLevel.Player;
 }
 
 internal static class EncounterFormation

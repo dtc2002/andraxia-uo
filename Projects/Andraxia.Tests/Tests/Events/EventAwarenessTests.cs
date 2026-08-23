@@ -233,7 +233,7 @@ public sealed class EventAwarenessTests : IDisposable
             states,
             encounters,
             new DeterministicEncounterLocationSelector(),
-            static () => 0,
+            static () => 1,
             awareness
         );
         return new Context(_service, events, states, encounters, awareness);
