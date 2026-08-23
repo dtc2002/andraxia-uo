@@ -8,7 +8,7 @@ namespace Server.Andraxia;
 
 public sealed class AndraxiaEventPersistence : GenericPersistence
 {
-    internal const int CurrentVersion = 6;
+    internal const int CurrentVersion = 7;
     internal const string PersistenceName = "AndraxiaEvents";
     internal const int MaxEntryCount = 10_000;
     internal const int MaxOwnedMobileCount = 100;
@@ -84,6 +84,15 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 writer.WriteEncodedInt(participant.Damage);
                 writer.Write(participant.RewardDelivered);
             }
+            var consequence = _service.Consequences.Get(instance.Id);
+            writer.Write(consequence.Source switch
+            {
+                EventOutcomeSource.CombatSuccess => "combat-success",
+                EventOutcomeSource.AutomaticFailure => "automatic-failure",
+                EventOutcomeSource.Administrative => "administrative",
+                _ => "none"
+            });
+            writer.Write(consequence.Applied);
         }
 
         writer.Write(_generator.Enabled);
@@ -99,6 +108,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
     {
         _events.Clear();
         _service.Participation.Clear();
+        _service.Consequences.Clear();
         _generator.ResetDefaults();
         base.Deserialize(savePath, typesDb);
     }
@@ -107,6 +117,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
     {
         _events.Clear();
         _service.Participation.Clear();
+        _service.Consequences.Clear();
         _generator.ResetDefaults();
 
         var version = reader.ReadEncodedInt();
@@ -141,6 +152,8 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             var totalDamage = 0;
             Dictionary<Serial, int> participantDamage = [];
             Dictionary<Serial, bool> participantDelivery = [];
+            var outcomeSource = EventOutcomeSource.None;
+            var consequenceApplied = false;
 
             if (version >= 1)
             {
@@ -230,6 +243,18 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                     }
                     participantDelivery[serial] = delivered;
                 }
+            }
+            if (version >= 7)
+            {
+                outcomeSource = reader.ReadString() switch
+                {
+                    "none" => EventOutcomeSource.None,
+                    "combat-success" => EventOutcomeSource.CombatSuccess,
+                    "automatic-failure" => EventOutcomeSource.AutomaticFailure,
+                    "administrative" => EventOutcomeSource.Administrative,
+                    var token => throw new InvalidDataException($"Unknown event outcome token '{token}'.")
+                };
+                consequenceApplied = reader.ReadBool();
             }
 
             if (!EventInstanceId.TryParse(instanceToken, out var instanceId))
@@ -331,6 +356,13 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                             : state != EventLifecycleState.Active || rewardsProcessed
                     )),
                     version >= 6 && combatCompletionEligible
+                );
+                _service.Consequences.Restore(
+                    instanceId,
+                    version >= 7 ? outcomeSource : state == EventLifecycleState.Active
+                        ? EventOutcomeSource.None
+                        : EventOutcomeSource.Administrative,
+                    version >= 7 ? consequenceApplied : state != EventLifecycleState.Active
                 );
             }
         }

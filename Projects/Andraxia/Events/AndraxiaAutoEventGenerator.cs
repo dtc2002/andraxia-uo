@@ -59,25 +59,27 @@ internal sealed class AndraxiaAutoEventGenerator
     internal const ulong DefaultRandomState = 0x414E445241584941UL;
     internal static readonly TimeSpan MinimumDelay = TimeSpan.FromMinutes(5);
     internal static readonly TimeSpan MaximumDelay = TimeSpan.FromMinutes(10);
-    internal const double TriggerProbability = 0.35;
 
     private readonly EventStore _events;
     private readonly WorldStateStore _worldStates;
     private readonly AndraxiaEventService _eventService;
     private readonly IAutoEventRandom _random;
     private readonly AndraxiaAutoEventScheduler _scheduler;
+    private readonly RegionalPressureStore _pressure;
 
     internal AndraxiaAutoEventGenerator(
         EventStore events,
         WorldStateStore worldStates,
         AndraxiaEventService eventService,
-        IAutoEventRandom random = null
+        IAutoEventRandom random = null,
+        RegionalPressureStore pressure = null
     )
     {
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _worldStates = worldStates ?? throw new ArgumentNullException(nameof(worldStates));
         _eventService = eventService ?? throw new ArgumentNullException(nameof(eventService));
         _random = random ?? new AutoEventRandom(DefaultRandomState);
+        _pressure = pressure ?? eventService.Pressure;
         _scheduler = new AndraxiaAutoEventScheduler(nowUtc => Evaluate(nowUtc));
     }
 
@@ -124,7 +126,8 @@ internal sealed class AndraxiaAutoEventGenerator
 
         var eligibleDefinitions = GetEligibleDefinitions();
         var eligible = eligibleDefinitions.Length != 0;
-        var probabilityPassed = eligible && _random.NextDouble() < TriggerProbability;
+        var probabilityPassed = eligible &&
+                                _random.NextDouble() < RegionalPressureStore.TriggerProbability(_pressure.Britain);
         EventDefinitionId? selectedDefinitionId = null;
         AndraxiaEventResult? triggerResult = null;
         if (probabilityPassed)

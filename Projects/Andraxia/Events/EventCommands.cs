@@ -80,6 +80,8 @@ internal static class EventCommands
     )
     {
         List<string> lines = ["--- Active Andraxia Events ---"];
+        lines.Add($"Britain pressure: {service.Pressure.Britain}/100 " +
+                  $"({RegionalPressureStore.Classify(service.Pressure.Britain)})");
         var active = store.EnumerateInstances()
             .Where(static instance => instance.State == EventLifecycleState.Active)
             .OrderBy(static instance => instance.ExpiresUtc)
@@ -167,6 +169,9 @@ internal static class EventCommands
         ];
 
         var participation = service.Participation.Get(instance.Id);
+        var consequence = service.Consequences.Get(instance.Id);
+        lines.Add($"Regional consequence: {(consequence.Applied ?
+            consequence.Source == EventOutcomeSource.Administrative ? "Not Applicable" : "Applied" : "Pending")}");
         var participants = service.Participation.Participants(instance.Id);
         var qualifying = service.Participation.Qualifying(instance.Id);
         lines.Add(
@@ -371,7 +376,7 @@ internal static class EventCommands
         e.Mobile.SendMessage(
             $"Delay {AndraxiaAutoEventGenerator.MinimumDelay.TotalMinutes:0}-" +
             $"{AndraxiaAutoEventGenerator.MaximumDelay.TotalMinutes:0}m, " +
-            $"chance {AndraxiaAutoEventGenerator.TriggerProbability:P0}"
+            $"chance {RegionalPressureStore.TriggerProbability(_service.Pressure.Britain):P0}"
         );
     }
 }

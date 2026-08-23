@@ -24,15 +24,26 @@ public sealed class AndraxiaEventService
     private readonly Func<int> _ordinaryPlayerCount;
     private readonly IEventAwareness _awareness;
     private readonly EventParticipationTracker _participation;
+    private readonly EventOutcomeConsequences _consequences;
 
     public AndraxiaEventService(EventStore events, WorldStateStore worldStates) :
+        this(events, worldStates, (RegionalPressureStore)null)
+    {
+    }
+
+    internal AndraxiaEventService(
+        EventStore events,
+        WorldStateStore worldStates,
+        RegionalPressureStore pressure
+    ) :
         this(
             events,
             worldStates,
             [new BritainBrigandEncounter(), new BritainUndeadEncounter()],
             new DeterministicEncounterLocationSelector(),
             OnlinePlayerCounter.CountOrdinaryPlayers,
-            new ModernUOEventAwareness()
+            new ModernUOEventAwareness(),
+            pressure
         )
     {
     }
@@ -67,7 +78,8 @@ public sealed class AndraxiaEventService
         IEnumerable<IEventEncounterSpawner> encounters,
         IEncounterLocationSelector locationSelector,
         Func<int> ordinaryPlayerCount = null,
-        IEventAwareness awareness = null
+        IEventAwareness awareness = null,
+        RegionalPressureStore pressure = null
     )
     {
         _events = events;
@@ -84,6 +96,8 @@ public sealed class AndraxiaEventService
         _ordinaryPlayerCount = ordinaryPlayerCount ?? (static () => 0);
         _awareness = awareness ?? NullEventAwareness.Instance;
         _participation = new EventParticipationTracker(events);
+        Pressure = pressure ?? new RegionalPressureStore();
+        _consequences = new EventOutcomeConsequences(Pressure);
         _scheduler = new AndraxiaEventExpirationScheduler(events, Advance);
     }
 
@@ -211,7 +225,10 @@ public sealed class AndraxiaEventService
 
         foreach (var instanceId in due)
         {
-            var result = Transition(instanceId, EventLifecycleState.Failed, nowUtc, false, publishAwareness);
+            var result = Transition(
+                instanceId, EventLifecycleState.Failed, nowUtc, false, publishAwareness,
+                false, EventOutcomeSource.AutomaticFailure
+            );
             if (!result.Succeeded)
             {
                 logger.Error(
@@ -243,7 +260,10 @@ public sealed class AndraxiaEventService
             return;
         }
 
-        var result = Transition(instance.Id, EventLifecycleState.Succeeded, nowUtc, true, true, true);
+        var result = Transition(
+            instance.Id, EventLifecycleState.Succeeded, nowUtc, true, true,
+            true, EventOutcomeSource.CombatSuccess
+        );
         if (!result.Succeeded)
         {
             logger.Error(
@@ -309,7 +329,8 @@ public sealed class AndraxiaEventService
         DateTime nowUtc,
         bool rearm,
         bool publishAwareness = true,
-        bool combatCompletion = false
+        bool combatCompletion = false,
+        EventOutcomeSource outcomeSource = EventOutcomeSource.Administrative
     )
     {
         ValidateUtc(nowUtc);
@@ -369,6 +390,8 @@ public sealed class AndraxiaEventService
             }
         }
 
+        _consequences.Apply(instanceId, outcomeSource);
+
         return result;
     }
 
@@ -385,6 +408,8 @@ public sealed class AndraxiaEventService
 
     internal bool IsRumorRegistered(EventInstanceId instanceId) => _awareness.IsRumorRegistered(instanceId);
     internal EventParticipationTracker Participation => _participation;
+    internal RegionalPressureStore Pressure { get; }
+    internal EventOutcomeConsequences Consequences => _consequences;
     internal void CaptureParticipation(Mobile creature) => _participation.Capture(creature);
     internal void RetryPendingRewards()
     {
