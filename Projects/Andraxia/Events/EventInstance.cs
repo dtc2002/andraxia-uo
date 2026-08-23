@@ -12,7 +12,8 @@ public sealed class EventInstance
         EventDefinition definition,
         DateTime startedUtc,
         IReadOnlyCollection<Serial> ownedMobiles = null,
-        EncounterLocationId? selectedLocationId = null
+        EncounterLocationId? selectedLocationId = null,
+        EncounterSeverity severity = EncounterSeverity.Normal
     ) :
         this(
             id,
@@ -23,7 +24,8 @@ public sealed class EventInstance
             startedUtc + definition.Duration,
             null,
             ownedMobiles,
-            selectedLocationId
+            selectedLocationId,
+            severity
         )
     {
     }
@@ -37,7 +39,8 @@ public sealed class EventInstance
         DateTime expiresUtc,
         DateTime? completedUtc,
         IReadOnlyCollection<Serial> ownedMobiles = null,
-        EncounterLocationId? selectedLocationId = null
+        EncounterLocationId? selectedLocationId = null,
+        EncounterSeverity severity = EncounterSeverity.Normal
     )
     {
         ValidateTimestamp(startedUtc, nameof(startedUtc));
@@ -76,6 +79,7 @@ public sealed class EventInstance
         CompletedUtc = completedUtc;
         OwnedMobiles = new ReadOnlyCollection<Serial>([.. ownedMobiles ?? []]);
         SelectedLocationId = selectedLocationId;
+        Severity = severity;
     }
 
     public EventInstanceId Id { get; }
@@ -87,6 +91,7 @@ public sealed class EventInstance
     public DateTime? CompletedUtc { get; }
     public IReadOnlyList<Serial> OwnedMobiles { get; }
     public EncounterLocationId? SelectedLocationId { get; }
+    public EncounterSeverity Severity { get; }
 
     private static void ValidateTimestamp(DateTime value, string parameterName)
     {

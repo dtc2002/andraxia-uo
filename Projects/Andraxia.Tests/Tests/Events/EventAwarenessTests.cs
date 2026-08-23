@@ -32,7 +32,7 @@ public sealed class EventAwarenessTests : IDisposable
                 KnownEncounterLocations.GetForDefinition(definition.Id)),
             static location => Assert.False(string.IsNullOrWhiteSpace(location.RumorText))
         );
-        Assert.Equal(7, AndraxiaEventPersistence.CurrentVersion);
+        Assert.Equal(8, AndraxiaEventPersistence.CurrentVersion);
     }
 
     [Theory]

@@ -44,6 +44,7 @@ public class AndraxiaEventPersistenceTests
     {
         using var source = new TestContext();
         using var loaded = new TestContext();
+        source.Service.Pressure.SetBritain(75);
         Assert.True(source.Service.Trigger(KnownEvents.BritainDisturbance, FirstId, StartUtc).Succeeded);
         var expected = Assert.Single(source.Events.EnumerateInstances()).OwnedMobiles.ToArray();
         var expectedLocation = Assert.Single(source.Events.EnumerateInstances()).SelectedLocationId;
@@ -55,6 +56,7 @@ public class AndraxiaEventPersistenceTests
         var instance = Assert.Single(loaded.Events.EnumerateInstances());
         Assert.Equal(expected, instance.OwnedMobiles);
         Assert.Equal(expectedLocation, instance.SelectedLocationId);
+        Assert.Equal(EncounterSeverity.Severe, instance.Severity);
     }
 
     [Fact]
@@ -173,6 +175,38 @@ public class AndraxiaEventPersistenceTests
         Assert.Null(instance.CompletedUtc);
         Assert.Empty(instance.OwnedMobiles);
         Assert.Null(instance.SelectedLocationId);
+        Assert.Equal(EncounterSeverity.Normal, instance.Severity);
+    }
+
+    [Fact]
+    public void VersionSevenActiveMigratesToNormalSeverity()
+    {
+        using var context = new TestContext();
+        var reader = CreateReader(writer =>
+        {
+            WriteHeader(writer, 7, 1);
+            WriteVersionZeroEntry(
+                writer, FirstId.ToString(), KnownEvents.BritainDisturbance.Value,
+                KnownEvents.Britain.Value, "active"
+            );
+            writer.Write(StartUtc);
+            writer.Write(StartUtc.AddMinutes(5));
+            writer.Write(false);
+            writer.WriteEncodedInt(0);
+            writer.Write(false);
+            writer.Write(false);
+            writer.WriteEncodedInt(0);
+            writer.WriteEncodedInt(0);
+            writer.Write("none");
+            writer.Write(false);
+            writer.Write(false);
+            writer.Write(false);
+            writer.Write(AndraxiaAutoEventGenerator.DefaultRandomState);
+        });
+
+        context.Persistence.Deserialize(reader);
+
+        Assert.Equal(EncounterSeverity.Normal, Assert.Single(context.Events.EnumerateInstances()).Severity);
     }
 
     [Fact]

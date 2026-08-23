@@ -135,6 +135,10 @@ public sealed class AndraxiaEventService
             );
         }
 
+        // Snapshot population and pressure once; neither can rescale an active event.
+        var encounterSize = EncounterScalingPolicy.GetEncounterSize(_ordinaryPlayerCount());
+        var severity = EncounterSeverityPolicy.FromPressure(Pressure.Britain);
+
         EncounterLocation location;
         if (forcedLocationId is { } locationId)
         {
@@ -156,8 +160,6 @@ public sealed class AndraxiaEventService
             );
         }
 
-        // Snapshot population once. Owned serials, rather than population, govern the rest of the lifecycle.
-        var encounterSize = EncounterScalingPolicy.GetEncounterSize(_ordinaryPlayerCount());
         var worldStateResult = _worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened);
         if (!worldStateResult.Succeeded)
         {
@@ -165,7 +167,7 @@ public sealed class AndraxiaEventService
         }
 
         var spawned = new List<Serial>(encounterSize);
-        if (!encounter.TrySpawn(location, encounterSize, spawned, out var spawnFailure))
+        if (!encounter.TrySpawn(location, encounterSize, severity, spawned, out var spawnFailure))
         {
             foreach (var serial in spawned)
             {
@@ -190,7 +192,7 @@ public sealed class AndraxiaEventService
         }
 
         var result = new AndraxiaEventResult(
-            _events.TriggerValidated(definitionId, instanceId, nowUtc, spawned, location.Id),
+            _events.TriggerValidated(definitionId, instanceId, nowUtc, spawned, location.Id, severity),
             worldStateResult
         );
         _scheduler.Rearm(nowUtc);

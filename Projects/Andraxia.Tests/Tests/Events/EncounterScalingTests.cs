@@ -83,7 +83,7 @@ public sealed class EncounterScalingTests : IDisposable
             var spawned = new List<Serial>();
             var location = KnownEncounterLocations.BritainDisturbance[0];
 
-            Assert.True(encounter.TrySpawn(location, size, spawned, out _));
+            Assert.True(encounter.TrySpawn(location, size, EncounterSeverity.Normal, spawned, out _));
             Assert.Equal(size, encounter.SpawnedPositions.Count);
             Assert.Equal(
                 EncounterFormation.Offsets.Take(size).Select(

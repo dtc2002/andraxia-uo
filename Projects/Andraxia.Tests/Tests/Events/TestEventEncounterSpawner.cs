@@ -14,18 +14,21 @@ internal sealed class TestEventEncounterSpawner(uint firstSerial = 1) : IEventEn
     public List<Serial> Deleted { get; } = [];
     public EncounterLocation SelectedLocation { get; private set; }
     public int RequestedEncounterSize { get; private set; }
+    public EncounterSeverity RequestedSeverity { get; private set; }
     public List<Point3D> SpawnedPositions { get; } = [];
     public EventDefinitionId DefinitionId { get; init; } = KnownEvents.BritainDisturbance;
     public IReadOnlyList<EncounterLocation> Locations => KnownEncounterLocations.GetForDefinition(DefinitionId);
     public bool TrySpawn(
         EncounterLocation location,
         int encounterSize,
+        EncounterSeverity severity,
         ICollection<Serial> spawned,
         out string failure
     )
     {
         SelectedLocation = location;
         RequestedEncounterSize = encounterSize;
+        RequestedSeverity = severity;
         var count = SpawnSucceeds ? encounterSize : SpawnBeforeFailure;
         for (var i = 0; i < count; i++)
         {

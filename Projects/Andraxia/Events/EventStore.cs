@@ -126,11 +126,14 @@ public sealed class EventStore
         EventInstanceId instanceId,
         DateTime nowUtc,
         IReadOnlyCollection<Serial> ownedMobiles = null,
-        EncounterLocationId? selectedLocationId = null
+        EncounterLocationId? selectedLocationId = null,
+        EncounterSeverity severity = EncounterSeverity.Normal
     )
     {
         ValidateUtc(nowUtc, nameof(nowUtc));
-        var instance = new EventInstance(instanceId, _definitions[definitionId], nowUtc, ownedMobiles, selectedLocationId);
+        var instance = new EventInstance(
+            instanceId, _definitions[definitionId], nowUtc, ownedMobiles, selectedLocationId, severity
+        );
         _instances.Add(instanceId, instance);
         return new EventTransitionResult(true, EventTransitionFailure.None, instance, null, EventLifecycleState.Active);
     }
@@ -152,7 +155,8 @@ public sealed class EventStore
             previous.ExpiresUtc,
             nowUtc,
             previous.OwnedMobiles,
-            previous.SelectedLocationId
+            previous.SelectedLocationId,
+            previous.Severity
         );
         _instances[instanceId] = current;
         PruneTerminalHistory();
@@ -169,6 +173,7 @@ public sealed class EventStore
         DateTime? completedUtc,
         IReadOnlyCollection<Serial> ownedMobiles = null,
         EncounterLocationId? selectedLocationId = null,
+        EncounterSeverity severity = EncounterSeverity.Normal,
         bool pruneTerminalHistory = true
     )
     {
@@ -210,7 +215,8 @@ public sealed class EventStore
                 expiresUtc,
                 completedUtc,
                 ownedMobiles,
-                selectedLocationId
+                selectedLocationId,
+                severity
             )
         );
         if (pruneTerminalHistory)
@@ -277,7 +283,8 @@ public sealed class EventStore
             instance.ExpiresUtc,
             instance.CompletedUtc,
             ownedMobiles,
-            instance.SelectedLocationId
+            instance.SelectedLocationId,
+            instance.Severity
         );
         _instances[instance.Id] = updated;
         return updated;

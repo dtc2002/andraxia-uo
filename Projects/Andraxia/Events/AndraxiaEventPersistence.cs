@@ -8,7 +8,7 @@ namespace Server.Andraxia;
 
 public sealed class AndraxiaEventPersistence : GenericPersistence
 {
-    internal const int CurrentVersion = 7;
+    internal const int CurrentVersion = 8;
     internal const string PersistenceName = "AndraxiaEvents";
     internal const int MaxEntryCount = 10_000;
     internal const int MaxOwnedMobileCount = 100;
@@ -93,6 +93,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 _ => "none"
             });
             writer.Write(consequence.Applied);
+            writer.Write(EncounterSeverityPolicy.GetToken(instance.Severity));
         }
 
         writer.Write(_generator.Enabled);
@@ -154,6 +155,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             Dictionary<Serial, bool> participantDelivery = [];
             var outcomeSource = EventOutcomeSource.None;
             var consequenceApplied = false;
+            var severity = EncounterSeverity.Normal;
 
             if (version >= 1)
             {
@@ -256,6 +258,10 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 };
                 consequenceApplied = reader.ReadBool();
             }
+            if (version >= 8 && !EncounterSeverityPolicy.TryParse(reader.ReadString(), out severity))
+            {
+                throw new InvalidDataException($"Unknown event severity token for event {instanceToken}.");
+            }
 
             if (!EventInstanceId.TryParse(instanceToken, out var instanceId))
             {
@@ -331,6 +337,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 completedUtc,
                 ownedMobiles,
                 selectedLocationId,
+                severity,
                 false
             );
 

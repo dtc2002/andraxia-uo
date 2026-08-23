@@ -97,6 +97,7 @@ internal static class EventCommands
             store.TryGetDefinition(instance.DefinitionId, out var definition);
             KnownEncounterLocations.TryGet(instance.SelectedLocationId ?? default, out var location);
             lines.Add($"{definition?.DisplayName ?? "Unknown event"} [{instance.Id}]");
+            lines.Add($"  Severity: {instance.Severity}");
             lines.Add(
                 $"  {EventLifecycleTokens.GetToken(instance.State)} | {location?.DisplayName ?? "Unknown location"} | " +
                 $"remaining {Remaining(instance)}/{instance.OwnedMobiles.Count} | expires {instance.ExpiresUtc:O}"
@@ -164,9 +165,19 @@ internal static class EventCommands
             $"Started={instance.StartedUtc:O} Expires={instance.ExpiresUtc:O} " +
             $"Completed={instance.CompletedUtc?.ToString("O") ?? "-"}",
             $"Owned={instance.OwnedMobiles.Count} Remaining={Remaining(instance)}",
+            $"Severity={instance.Severity} ({EncounterSeverityPolicy.Description(instance.Severity)})",
+            $"Encounter size={instance.OwnedMobiles.Count}",
             $"Rumor: {(hasLocation ? location.RumorText : "-")}",
             $"Town Crier registered: {(service.IsRumorRegistered(instance.Id) ? "Yes" : "No")}"
         ];
+
+        var composition = instance.OwnedMobiles
+            .Select(serial => World.FindMobile(serial, true) is { } mobile
+                ? EncounterCompositionPolicy.DisplayName(mobile.GetType())
+                : "missing")
+            .GroupBy(static type => type, System.StringComparer.Ordinal)
+            .OrderBy(static group => group.Key, System.StringComparer.Ordinal);
+        lines.Add("Composition: " + string.Join(", ", composition.Select(group => $"{group.Key} x{group.Count()}")));
 
         var participation = service.Participation.Get(instance.Id);
         var consequence = service.Consequences.Get(instance.Id);

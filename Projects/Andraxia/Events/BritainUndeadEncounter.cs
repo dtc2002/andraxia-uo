@@ -9,38 +9,33 @@ internal sealed class BritainUndeadEncounter : IEventEncounterSpawner
 {
     internal const int Size = 3;
 
-    internal static IReadOnlyList<Type> MobileTypes { get; } =
-        [typeof(AndraxiaEncounterSkeleton), typeof(AndraxiaEncounterSkeleton), typeof(AndraxiaEncounterZombie)];
+    internal static IReadOnlyList<Type> MobileTypes { get; } = EncounterCompositionPolicy.Undead(3, EncounterSeverity.Normal);
 
-    internal static IReadOnlyList<Type> GetMobileTypes(int encounterSize)
-    {
-        var skeletonCount = (encounterSize + 1) / 2;
-        var types = new Type[encounterSize];
-        for (var i = 0; i < types.Length; i++)
-        {
-            types[i] = i < skeletonCount ? typeof(AndraxiaEncounterSkeleton) : typeof(AndraxiaEncounterZombie);
-        }
-
-        return types;
-    }
+    internal static IReadOnlyList<Type> GetMobileTypes(int encounterSize) =>
+        EncounterCompositionPolicy.Undead(encounterSize, EncounterSeverity.Normal);
 
     public EventDefinitionId DefinitionId => KnownEvents.BritainUndeadDisturbance;
     public IReadOnlyList<EncounterLocation> Locations => KnownEncounterLocations.BritainUndeadDisturbance;
     public bool TrySpawn(
         EncounterLocation location,
         int encounterSize,
+        EncounterSeverity severity,
         ICollection<Serial> spawned,
         out string failure
     )
     {
         try
         {
-            var mobileTypes = GetMobileTypes(encounterSize);
+            var mobileTypes = EncounterCompositionPolicy.Undead(encounterSize, severity);
             for (var i = 0; i < encounterSize; i++)
             {
                 Mobile undead = mobileTypes[i] == typeof(AndraxiaEncounterSkeleton)
                     ? new AndraxiaEncounterSkeleton()
-                    : new AndraxiaEncounterZombie();
+                    : mobileTypes[i] == typeof(AndraxiaEncounterZombie)
+                        ? new AndraxiaEncounterZombie()
+                        : mobileTypes[i] == typeof(AndraxiaEncounterGhoul)
+                            ? new AndraxiaEncounterGhoul()
+                            : new AndraxiaEncounterWraith();
                 spawned.Add(undead.Serial);
                 var offset = EncounterFormation.Offsets[i];
                 undead.MoveToWorld(
@@ -62,14 +57,60 @@ internal sealed class BritainUndeadEncounter : IEventEncounterSpawner
     public void Delete(Serial serial)
     {
         var undead = World.FindMobile(serial);
-        if (undead is AndraxiaEncounterSkeleton or AndraxiaEncounterZombie && !undead.Deleted)
+        if (undead is AndraxiaEncounterSkeleton or AndraxiaEncounterZombie or
+            AndraxiaEncounterGhoul or AndraxiaEncounterWraith && !undead.Deleted)
         {
             undead.Delete();
         }
     }
 
     public bool Exists(Serial serial) =>
-        World.FindMobile(serial) is (AndraxiaEncounterSkeleton or AndraxiaEncounterZombie) and { Deleted: false };
+        World.FindMobile(serial) is (AndraxiaEncounterSkeleton or AndraxiaEncounterZombie or
+            AndraxiaEncounterGhoul or AndraxiaEncounterWraith) and { Deleted: false };
+}
+
+[SerializationGenerator(0, false)]
+internal partial class AndraxiaEncounterGhoul : Ghoul
+{
+    [Constructible]
+    public AndraxiaEncounterGhoul()
+    {
+    }
+
+    public override void OnDeath(Items.Container corpse)
+    {
+        EventEncounterLifecycle.OnCreatureDefeated(this);
+        base.OnDeath(corpse);
+        EventEncounterLifecycle.OnCreatureRemoved(this);
+    }
+
+    public override void OnDelete()
+    {
+        EventEncounterLifecycle.OnCreatureRemoved(this);
+        base.OnDelete();
+    }
+}
+
+[SerializationGenerator(0, false)]
+internal partial class AndraxiaEncounterWraith : Wraith
+{
+    [Constructible]
+    public AndraxiaEncounterWraith()
+    {
+    }
+
+    public override void OnDeath(Items.Container corpse)
+    {
+        EventEncounterLifecycle.OnCreatureDefeated(this);
+        base.OnDeath(corpse);
+        EventEncounterLifecycle.OnCreatureRemoved(this);
+    }
+
+    public override void OnDelete()
+    {
+        EventEncounterLifecycle.OnCreatureRemoved(this);
+        base.OnDelete();
+    }
 }
 
 [SerializationGenerator(0, false)]
