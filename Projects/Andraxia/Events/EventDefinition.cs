@@ -12,7 +12,8 @@ public sealed record EventDefinition
         string description = null,
         string startBroadcast = null,
         string successBroadcast = null,
-        string failureBroadcast = null
+        string failureBroadcast = null,
+        string rewardDescription = null
     )
     {
         if (duration <= TimeSpan.Zero)
@@ -28,6 +29,7 @@ public sealed record EventDefinition
         StartBroadcast = startBroadcast;
         SuccessBroadcast = successBroadcast;
         FailureBroadcast = failureBroadcast;
+        RewardDescription = rewardDescription;
     }
 
     public EventDefinitionId Id { get; }
@@ -38,4 +40,5 @@ public sealed record EventDefinition
     public string StartBroadcast { get; }
     public string SuccessBroadcast { get; }
     public string FailureBroadcast { get; }
+    public string RewardDescription { get; }
 }

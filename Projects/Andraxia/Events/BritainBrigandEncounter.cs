@@ -71,6 +71,7 @@ internal partial class AndraxiaEncounterBrigand : Brigand
 
     public override void OnDeath(Items.Container corpse)
     {
+        EventEncounterLifecycle.OnCreatureDefeated(this);
         base.OnDeath(corpse);
         EventEncounterLifecycle.OnCreatureRemoved(this);
     }

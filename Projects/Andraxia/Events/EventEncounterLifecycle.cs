@@ -8,4 +8,6 @@ internal static class EventEncounterLifecycle
 
     public static void OnCreatureRemoved(Mobile creature) =>
         _service?.HandleOwnedMobileRemoved(creature.Serial, Core.Now);
+
+    public static void OnCreatureDefeated(Mobile creature) => _service?.CaptureParticipation(creature);
 }

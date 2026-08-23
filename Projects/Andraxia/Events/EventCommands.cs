@@ -166,6 +166,24 @@ internal static class EventCommands
             $"Town Crier registered: {(service.IsRumorRegistered(instance.Id) ? "Yes" : "No")}"
         ];
 
+        var participation = service.Participation.Get(instance.Id);
+        var participants = service.Participation.Participants(instance.Id);
+        var qualifying = service.Participation.Qualifying(instance.Id);
+        lines.Add(
+            $"Participants={qualifying.Count} Reward granted/processed=" +
+            $"{(participation.RewardsProcessed ? "Yes" : "No")}"
+        );
+        foreach (var participant in participants)
+        {
+            var mobile = World.FindMobile(participant.MobileSerial, true);
+            var percentage = participation.TotalDamage == 0 ? 0 : participant.Damage * 100.0 / participation.TotalDamage;
+            var qualified = service.Participation.Qualifies(instance.Id, participant);
+            var reward = !qualified ? "Not Qualified" : participant.RewardDelivered ? "Delivered" : "Pending";
+            lines.Add($"  Character={mobile?.Name ?? participant.MobileSerial.ToString()} " +
+                      $"Damage={participant.Damage} ({percentage:0.#}%) Qualified={(qualified ? "Yes" : "No")} " +
+                      $"Reward={reward}");
+        }
+
         foreach (var serial in instance.OwnedMobiles)
         {
             var mobile = World.FindMobile(serial, true);

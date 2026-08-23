@@ -20,7 +20,8 @@ public static class KnownEvents
                 "Brigands are disrupting travel around Britain.",
                 "Word spreads of lawlessness near Britain.",
                 "Reports suggest the danger near Britain has passed.",
-                "The disturbance near Britain appears to have subsided."
+                "The disturbance near Britain appears to have subsided.",
+                "500 gold for meaningful participation"
             ),
             new EventDefinition(
                 BritainUndeadDisturbance,
@@ -30,7 +31,8 @@ public static class KnownEvents
                 "Restless dead have been reported around Britain.",
                 "Uneasy reports speak of strange activity near Britain.",
                 "Reports suggest the danger near Britain has passed.",
-                "The disturbance near Britain appears to have subsided."
+                "The disturbance near Britain appears to have subsided.",
+                "500 gold for meaningful participation"
             )
         ]
     );

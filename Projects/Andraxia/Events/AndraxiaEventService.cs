@@ -23,6 +23,7 @@ public sealed class AndraxiaEventService
     private readonly IEncounterLocationSelector _locationSelector;
     private readonly Func<int> _ordinaryPlayerCount;
     private readonly IEventAwareness _awareness;
+    private readonly EventParticipationTracker _participation;
 
     public AndraxiaEventService(EventStore events, WorldStateStore worldStates) :
         this(
@@ -82,6 +83,7 @@ public sealed class AndraxiaEventService
         _locationSelector = locationSelector ?? throw new ArgumentNullException(nameof(locationSelector));
         _ordinaryPlayerCount = ordinaryPlayerCount ?? (static () => 0);
         _awareness = awareness ?? NullEventAwareness.Instance;
+        _participation = new EventParticipationTracker(events);
         _scheduler = new AndraxiaEventExpirationScheduler(events, Advance);
     }
 
@@ -241,7 +243,7 @@ public sealed class AndraxiaEventService
             return;
         }
 
-        var result = Complete(instance.Id, nowUtc);
+        var result = Transition(instance.Id, EventLifecycleState.Succeeded, nowUtc, true, true, true);
         if (!result.Succeeded)
         {
             logger.Error(
@@ -306,7 +308,8 @@ public sealed class AndraxiaEventService
         EventLifecycleState requested,
         DateTime nowUtc,
         bool rearm,
-        bool publishAwareness = true
+        bool publishAwareness = true,
+        bool combatCompletion = false
     )
     {
         ValidateUtc(nowUtc);
@@ -354,6 +357,18 @@ public sealed class AndraxiaEventService
             PublishResolution(result.EventResult.Instance);
         }
 
+        if (requested == EventLifecycleState.Succeeded)
+        {
+            if (combatCompletion)
+            {
+                _participation.FinalizeCombatAndProcess(instanceId);
+            }
+            else
+            {
+                _participation.CloseWithoutRewards(instanceId);
+            }
+        }
+
         return result;
     }
 
@@ -369,6 +384,16 @@ public sealed class AndraxiaEventService
     }
 
     internal bool IsRumorRegistered(EventInstanceId instanceId) => _awareness.IsRumorRegistered(instanceId);
+    internal EventParticipationTracker Participation => _participation;
+    internal void CaptureParticipation(Mobile creature) => _participation.Capture(creature);
+    internal void RetryPendingRewards()
+    {
+        foreach (var instance in _events.EnumerateInstances().Where(static instance =>
+                     instance.State == EventLifecycleState.Succeeded))
+        {
+            _participation.ProcessPending(instance.Id);
+        }
+    }
 
     private void PublishActivation(EventInstance instance)
     {

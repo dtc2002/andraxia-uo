@@ -8,7 +8,7 @@ namespace Server.Andraxia;
 
 public sealed class AndraxiaEventPersistence : GenericPersistence
 {
-    internal const int CurrentVersion = 4;
+    internal const int CurrentVersion = 6;
     internal const string PersistenceName = "AndraxiaEvents";
     internal const int MaxEntryCount = 10_000;
     internal const int MaxOwnedMobileCount = 100;
@@ -73,6 +73,17 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             {
                 writer.Write(locationId.Value);
             }
+
+            var participation = _service.Participation.Get(instance.Id);
+            writer.Write(participation.CombatCompletionEligible);
+            writer.WriteEncodedInt(participation.TotalDamage);
+            writer.WriteEncodedInt(participation.Participants.Count);
+            foreach (var participant in participation.Participants)
+            {
+                writer.Write(participant.MobileSerial);
+                writer.WriteEncodedInt(participant.Damage);
+                writer.Write(participant.RewardDelivered);
+            }
         }
 
         writer.Write(_generator.Enabled);
@@ -87,6 +98,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
     public override void Deserialize(string savePath, Dictionary<ulong, string> typesDb)
     {
         _events.Clear();
+        _service.Participation.Clear();
         _generator.ResetDefaults();
         base.Deserialize(savePath, typesDb);
     }
@@ -94,6 +106,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
     public override void Deserialize(IGenericReader reader)
     {
         _events.Clear();
+        _service.Participation.Clear();
         _generator.ResetDefaults();
 
         var version = reader.ReadEncodedInt();
@@ -123,6 +136,11 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             DateTime? completedUtc = null;
             Serial[] ownedMobiles = [];
             EncounterLocationId? selectedLocationId = null;
+            var rewardsProcessed = false;
+            var combatCompletionEligible = false;
+            var totalDamage = 0;
+            Dictionary<Serial, int> participantDamage = [];
+            Dictionary<Serial, bool> participantDelivery = [];
 
             if (version >= 1)
             {
@@ -170,6 +188,47 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                         instanceToken,
                         selectedLocationId.Value
                     );
+                }
+            }
+
+            if (version == 5)
+            {
+                rewardsProcessed = reader.ReadBool();
+                totalDamage = reader.ReadEncodedInt();
+                var participantCount = reader.ReadEncodedInt();
+                if (totalDamage < 0 || participantCount is < 0 or > MaxOwnedMobileCount)
+                {
+                    throw new InvalidDataException($"Invalid participation payload for event {instanceToken}.");
+                }
+                for (var participantIndex = 0; participantIndex < participantCount; participantIndex++)
+                {
+                    var serial = reader.ReadSerial();
+                    var damage = reader.ReadEncodedInt();
+                    if (damage <= 0 || !participantDamage.TryAdd(serial, damage))
+                    {
+                        throw new InvalidDataException($"Invalid participant entry for event {instanceToken}.");
+                    }
+                }
+            }
+            else if (version >= 6)
+            {
+                combatCompletionEligible = reader.ReadBool();
+                totalDamage = reader.ReadEncodedInt();
+                var participantCount = reader.ReadEncodedInt();
+                if (totalDamage < 0 || participantCount is < 0 or > MaxOwnedMobileCount)
+                {
+                    throw new InvalidDataException($"Invalid participation payload for event {instanceToken}.");
+                }
+                for (var participantIndex = 0; participantIndex < participantCount; participantIndex++)
+                {
+                    var serial = reader.ReadSerial();
+                    var damage = reader.ReadEncodedInt();
+                    var delivered = reader.ReadBool();
+                    if (damage <= 0 || !participantDamage.TryAdd(serial, damage))
+                    {
+                        throw new InvalidDataException($"Invalid participant entry for event {instanceToken}.");
+                    }
+                    participantDelivery[serial] = delivered;
                 }
             }
 
@@ -259,6 +318,21 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                     failure
                 );
             }
+            else
+            {
+                _service.Participation.Restore(
+                    instanceId,
+                    totalDamage,
+                    participantDamage.Select(pair => new EventParticipant(
+                        pair.Key,
+                        pair.Value,
+                        version >= 6
+                            ? participantDelivery.GetValueOrDefault(pair.Key)
+                            : state != EventLifecycleState.Active || rewardsProcessed
+                    )),
+                    version >= 6 && combatCompletionEligible
+                );
+            }
         }
 
         if (version >= 4)
@@ -287,6 +361,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
         _service.RecoverOwnedMobiles(Core.Now);
         _service.AdvanceAfterDeserialize(Core.Now);
         _service.RestoreActiveRumors();
+        _service.RetryPendingRewards();
         _generator.Recover(Core.Now);
     }
 

@@ -82,6 +82,7 @@ internal partial class AndraxiaEncounterSkeleton : Skeleton
 
     public override void OnDeath(Items.Container corpse)
     {
+        EventEncounterLifecycle.OnCreatureDefeated(this);
         base.OnDeath(corpse);
         EventEncounterLifecycle.OnCreatureRemoved(this);
     }
@@ -103,6 +104,7 @@ internal partial class AndraxiaEncounterZombie : Zombie
 
     public override void OnDeath(Items.Container corpse)
     {
+        EventEncounterLifecycle.OnCreatureDefeated(this);
         base.OnDeath(corpse);
         EventEncounterLifecycle.OnCreatureRemoved(this);
     }
