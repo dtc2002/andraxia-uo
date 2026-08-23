@@ -24,6 +24,7 @@ internal readonly record struct AutoEventEvaluationResult(
     bool Evaluated,
     bool Eligible,
     bool ProbabilityPassed,
+    EventDefinitionId? SelectedDefinitionId,
     AndraxiaEventResult? TriggerResult
 );
 
@@ -111,38 +112,32 @@ internal sealed class AndraxiaAutoEventGenerator
         return true;
     }
 
-    internal bool IsEligible()
-    {
-        if (!Enabled ||
-            !_events.TryGetDefinition(KnownEvents.BritainDisturbance, out _) ||
-            !_worldStates.TryGetState(KnownWorldStates.Britain, out var condition) ||
-            condition != WorldCondition.Normal)
-        {
-            return false;
-        }
-
-        return !_events.EnumerateInstances().Any(
-            static instance =>
-                instance.State == EventLifecycleState.Active && instance.TargetId == KnownEvents.Britain
-        );
-    }
+    internal bool IsEligible() => GetEligibleDefinitions().Length != 0;
 
     internal AutoEventEvaluationResult Evaluate(DateTime nowUtc)
     {
         ValidateUtc(nowUtc);
         if (!Enabled)
         {
-            return new AutoEventEvaluationResult(false, false, false, null);
+            return new AutoEventEvaluationResult(false, false, false, null, null);
         }
 
-        var eligible = IsEligible();
+        var eligibleDefinitions = GetEligibleDefinitions();
+        var eligible = eligibleDefinitions.Length != 0;
         var probabilityPassed = eligible && _random.NextDouble() < TriggerProbability;
-        AndraxiaEventResult? triggerResult = probabilityPassed
-            ? _eventService.Trigger(KnownEvents.BritainDisturbance, EventInstanceId.New(), nowUtc)
-            : null;
+        EventDefinitionId? selectedDefinitionId = null;
+        AndraxiaEventResult? triggerResult = null;
+        if (probabilityPassed)
+        {
+            var selectedIndex = eligibleDefinitions.Length == 1
+                ? 0
+                : (int)Math.Floor(_random.NextDouble() * eligibleDefinitions.Length);
+            selectedDefinitionId = eligibleDefinitions[selectedIndex];
+            triggerResult = _eventService.Trigger(selectedDefinitionId.Value, EventInstanceId.New(), nowUtc);
+        }
 
         ScheduleNext(nowUtc);
-        return new AutoEventEvaluationResult(true, eligible, probabilityPassed, triggerResult);
+        return new AutoEventEvaluationResult(true, eligible, probabilityPassed, selectedDefinitionId, triggerResult);
     }
 
     internal void Restore(bool enabled, DateTime? nextEvaluationUtc, ulong randomState)
@@ -193,6 +188,27 @@ internal sealed class AndraxiaAutoEventGenerator
     }
 
     internal void StopTimer() => _scheduler.Cancel();
+
+    internal EventDefinitionId[] GetEligibleDefinitions()
+    {
+        if (!Enabled ||
+            !_worldStates.TryGetState(KnownWorldStates.Britain, out var condition) ||
+            condition != WorldCondition.Normal ||
+            _events.EnumerateInstances().Any(
+                static instance =>
+                    instance.State == EventLifecycleState.Active && instance.TargetId == KnownEvents.Britain
+            ))
+        {
+            return [];
+        }
+
+        return KnownEvents.AutomaticDefinitions
+            .Where(definitionId =>
+                _events.TryGetDefinition(definitionId, out _) && _eventService.HasEncounterHandler(definitionId)
+            )
+            .OrderBy(static definitionId => definitionId.Value, StringComparer.Ordinal)
+            .ToArray();
+    }
 
     private void ScheduleNext(DateTime nowUtc)
     {

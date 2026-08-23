@@ -12,6 +12,7 @@ public enum EventTransitionFailure
     DuplicateInstance,
     DuplicateActiveDefinitionOrTarget,
     UnknownEncounterLocation,
+    EncounterUnavailable,
     EncounterSpawnFailed,
     UnknownInstance,
     SameState,

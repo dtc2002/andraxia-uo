@@ -11,6 +11,19 @@ public static class KnownEncounterLocations
     public static readonly EncounterLocationId BritainGraveyardEast = new("location.britain.graveyard-east");
     public static readonly EncounterLocationId BritainRoadNorth = new("location.britain.road-north");
     public static readonly EncounterLocationId BritainRoadSouth = new("location.britain.road-south");
+    public static readonly EncounterLocationId BritainUndeadGraveyardEast = new(
+        "location.britain.undead.graveyard-east"
+    );
+    public static readonly EncounterLocationId BritainUndeadGraveyardWest = new(
+        "location.britain.undead.graveyard-west"
+    );
+    public static readonly EncounterLocationId BritainUndeadRuinsNorth = new("location.britain.undead.ruins-north");
+    public static readonly EncounterLocationId BritainUndeadWildernessEast = new(
+        "location.britain.undead.wilderness-east"
+    );
+    public static readonly EncounterLocationId BritainUndeadWildernessSouth = new(
+        "location.britain.undead.wilderness-south"
+    );
 
     private static readonly ReadOnlyCollection<EncounterLocation> britainDisturbance = new(
         [
@@ -23,11 +36,57 @@ public static class KnownEncounterLocations
         ]
     );
 
+    private static readonly ReadOnlyCollection<EncounterLocation> britainUndeadDisturbance = new(
+        [
+            new(BritainUndeadGraveyardEast, Map.Trammel, 1408, 1492, 10),
+            new(BritainUndeadGraveyardWest, Map.Trammel, 1350, 1490, 10),
+            new(BritainUndeadRuinsNorth, Map.Trammel, 1510, 1400, 0),
+            new(BritainUndeadWildernessEast, Map.Trammel, 1750, 1580, 0),
+            new(BritainUndeadWildernessSouth, Map.Trammel, 1450, 1840, 0)
+        ]
+    );
+
     public static IReadOnlyList<EncounterLocation> BritainDisturbance => britainDisturbance;
+    public static IReadOnlyList<EncounterLocation> BritainUndeadDisturbance => britainUndeadDisturbance;
+
+    public static IReadOnlyList<EncounterLocation> GetForDefinition(EventDefinitionId definitionId) =>
+        definitionId == KnownEvents.BritainDisturbance
+            ? britainDisturbance
+            : definitionId == KnownEvents.BritainUndeadDisturbance
+                ? britainUndeadDisturbance
+                : [];
+
+    public static bool TryGetForDefinition(
+        EventDefinitionId definitionId,
+        EncounterLocationId locationId,
+        out EncounterLocation location
+    )
+    {
+        foreach (var candidate in GetForDefinition(definitionId))
+        {
+            if (candidate.Id == locationId)
+            {
+                location = candidate;
+                return true;
+            }
+        }
+
+        location = null;
+        return false;
+    }
 
     public static bool TryGet(EncounterLocationId id, out EncounterLocation location)
     {
         foreach (var candidate in britainDisturbance)
+        {
+            if (candidate.Id == id)
+            {
+                location = candidate;
+                return true;
+            }
+        }
+
+        foreach (var candidate in britainUndeadDisturbance)
         {
             if (candidate.Id == id)
             {

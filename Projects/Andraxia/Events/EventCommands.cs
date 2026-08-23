@@ -98,15 +98,15 @@ internal static class EventCommands
         }
     }
 
-    [Usage("AndraxiaEventTrigger event.test.britain-disturbance [location-id]")]
-    [Description("Triggers the approved Andraxia test event.")]
+    [Usage("AndraxiaEventTrigger <event-definition-id> [location-id]")]
+    [Description("Triggers a registered Andraxia encounter event.")]
     private static void TriggerEvent_OnCommand(CommandEventArgs e)
     {
         if (e.Length is < 1 or > 2 ||
             string.IsNullOrWhiteSpace(e.GetString(0)) ||
             e.Length == 2 && string.IsNullOrWhiteSpace(e.GetString(1)))
         {
-            e.Mobile.SendMessage("Usage: AndraxiaEventTrigger event.test.britain-disturbance [location-id]");
+            e.Mobile.SendMessage("Usage: AndraxiaEventTrigger <event-definition-id> [location-id]");
             return;
         }
 

@@ -4,9 +4,9 @@ using Server.Andraxia;
 
 namespace Andraxia.Tests;
 
-internal sealed class TestEventEncounterSpawner : IEventEncounterSpawner
+internal sealed class TestEventEncounterSpawner(uint firstSerial = 1) : IEventEncounterSpawner
 {
-    private uint _nextSerial = 1;
+    private uint _nextSerial = firstSerial;
 
     public bool SpawnSucceeds { get; set; } = true;
     public int SpawnBeforeFailure { get; set; }
@@ -14,11 +14,14 @@ internal sealed class TestEventEncounterSpawner : IEventEncounterSpawner
     public List<Serial> Deleted { get; } = [];
     public EncounterLocation SelectedLocation { get; private set; }
     public List<Point3D> SpawnedPositions { get; } = [];
+    public EventDefinitionId DefinitionId { get; init; } = KnownEvents.BritainDisturbance;
+    public IReadOnlyList<EncounterLocation> Locations => KnownEncounterLocations.GetForDefinition(DefinitionId);
+    public int EncounterSize => BritainBrigandEncounter.Size;
 
     public bool TrySpawn(EncounterLocation location, ICollection<Serial> spawned, out string failure)
     {
         SelectedLocation = location;
-        var count = SpawnSucceeds ? BritainBrigandEncounter.EncounterSize : SpawnBeforeFailure;
+        var count = SpawnSucceeds ? EncounterSize : SpawnBeforeFailure;
         for (var i = 0; i < count; i++)
         {
             var serial = (Serial)_nextSerial++;

@@ -37,7 +37,7 @@ public class EventExpirationTests
         Assert.Equal(EventLifecycleState.Failed, GetInstance(context).State);
         Assert.Equal(expirationUtc, completedUtc);
         Assert.Equal(completedUtc, GetInstance(context).CompletedUtc);
-        Assert.Equal(BritainBrigandEncounter.EncounterSize, context.Encounter.Deleted.Count);
+        Assert.Equal(BritainBrigandEncounter.Size, context.Encounter.Deleted.Count);
         Assert.Empty(GetInstance(context).OwnedMobiles);
         AssertWorldState(context.WorldStates, WorldCondition.Normal);
     }

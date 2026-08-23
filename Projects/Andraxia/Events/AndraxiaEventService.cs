@@ -19,11 +19,16 @@ public sealed class AndraxiaEventService
     private readonly EventStore _events;
     private readonly WorldStateStore _worldStates;
     private readonly AndraxiaEventExpirationScheduler _scheduler;
-    private readonly IEventEncounterSpawner _encounter;
+    private readonly Dictionary<EventDefinitionId, IEventEncounterSpawner> _encounters = [];
     private readonly IEncounterLocationSelector _locationSelector;
 
     public AndraxiaEventService(EventStore events, WorldStateStore worldStates) :
-        this(events, worldStates, new BritainBrigandEncounter(), new DeterministicEncounterLocationSelector())
+        this(
+            events,
+            worldStates,
+            [new BritainBrigandEncounter(), new BritainUndeadEncounter()],
+            new DeterministicEncounterLocationSelector()
+        )
     {
     }
 
@@ -31,7 +36,7 @@ public sealed class AndraxiaEventService
         EventStore events,
         WorldStateStore worldStates,
         IEventEncounterSpawner encounter
-    ) : this(events, worldStates, encounter, new DeterministicEncounterLocationSelector())
+    ) : this(events, worldStates, [encounter], new DeterministicEncounterLocationSelector())
     {
     }
 
@@ -40,11 +45,27 @@ public sealed class AndraxiaEventService
         WorldStateStore worldStates,
         IEventEncounterSpawner encounter,
         IEncounterLocationSelector locationSelector
+    ) : this(events, worldStates, [encounter], locationSelector)
+    {
+    }
+
+    internal AndraxiaEventService(
+        EventStore events,
+        WorldStateStore worldStates,
+        IEnumerable<IEventEncounterSpawner> encounters,
+        IEncounterLocationSelector locationSelector
     )
     {
         _events = events;
         _worldStates = worldStates;
-        _encounter = encounter ?? throw new ArgumentNullException(nameof(encounter));
+        ArgumentNullException.ThrowIfNull(encounters);
+        foreach (var encounter in encounters)
+        {
+            if (!_encounters.TryAdd(encounter.DefinitionId, encounter))
+            {
+                throw new ArgumentException($"Duplicate encounter handler '{encounter.DefinitionId}'.", nameof(encounters));
+            }
+        }
         _locationSelector = locationSelector ?? throw new ArgumentNullException(nameof(locationSelector));
         _scheduler = new AndraxiaEventExpirationScheduler(events, Advance);
     }
@@ -75,11 +96,19 @@ public sealed class AndraxiaEventService
             return new AndraxiaEventResult(validation, null);
         }
 
+        if (!_encounters.TryGetValue(definitionId, out var encounter))
+        {
+            return new AndraxiaEventResult(
+                validation with { Succeeded = false, Failure = EventTransitionFailure.EncounterUnavailable },
+                null
+            );
+        }
+
         EncounterLocation location;
         if (forcedLocationId is { } locationId)
         {
-            if (definitionId != KnownEvents.BritainDisturbance ||
-                !KnownEncounterLocations.TryGet(locationId, out location))
+            if (!encounter.Locations.Any(candidate => candidate.Id == locationId) ||
+                !KnownEncounterLocations.TryGetForDefinition(definitionId, locationId, out location))
             {
                 return new AndraxiaEventResult(
                     validation with { Succeeded = false, Failure = EventTransitionFailure.UnknownEncounterLocation },
@@ -92,7 +121,7 @@ public sealed class AndraxiaEventService
             location = _locationSelector.Select(
                 definitionId,
                 instanceId,
-                KnownEncounterLocations.BritainDisturbance
+                encounter.Locations
             );
         }
 
@@ -102,12 +131,12 @@ public sealed class AndraxiaEventService
             return new AndraxiaEventResult(validation with { Succeeded = false }, worldStateResult);
         }
 
-        var spawned = new List<Serial>(BritainBrigandEncounter.EncounterSize);
-        if (!_encounter.TrySpawn(location, spawned, out var spawnFailure))
+        var spawned = new List<Serial>(encounter.EncounterSize);
+        if (!encounter.TrySpawn(location, spawned, out var spawnFailure))
         {
             foreach (var serial in spawned)
             {
-                _encounter.Delete(serial);
+                encounter.Delete(serial);
             }
 
             var compensation = _worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Normal);
@@ -178,6 +207,7 @@ public sealed class AndraxiaEventService
     }
 
     internal AndraxiaEventExpirationScheduler Scheduler => _scheduler;
+    internal bool HasEncounterHandler(EventDefinitionId definitionId) => _encounters.ContainsKey(definitionId);
 
     internal void RearmExpirationTimer(DateTime nowUtc) => _scheduler.Rearm(nowUtc);
 
@@ -213,7 +243,17 @@ public sealed class AndraxiaEventService
 
         foreach (var instance in active)
         {
-            var remaining = instance.OwnedMobiles.Where(_encounter.Exists).ToArray();
+            if (!_encounters.TryGetValue(instance.DefinitionId, out var encounter))
+            {
+                logger.Error(
+                    "Cannot recover Andraxia event {Identifier}: no encounter handler for {Definition}",
+                    instance.Id,
+                    instance.DefinitionId
+                );
+                continue;
+            }
+
+            var remaining = instance.OwnedMobiles.Where(encounter.Exists).ToArray();
             var restored = remaining.Length == instance.OwnedMobiles.Count
                 ? instance
                 : _events.ReplaceOwnedMobiles(instance, remaining);
@@ -260,11 +300,22 @@ public sealed class AndraxiaEventService
             worldStateResult
         );
 
-        foreach (var serial in result.EventResult.Instance.OwnedMobiles)
+        if (!_encounters.TryGetValue(result.EventResult.Instance.DefinitionId, out var encounter))
         {
-            _encounter.Delete(serial);
+            logger.Error(
+                "Cannot clean Andraxia event {Identifier}: no encounter handler for {Definition}",
+                result.EventResult.Instance.Id,
+                result.EventResult.Instance.DefinitionId
+            );
         }
-        _events.ClearOwnedMobiles(instanceId);
+        else
+        {
+            foreach (var serial in result.EventResult.Instance.OwnedMobiles)
+            {
+                encounter.Delete(serial);
+            }
+            _events.ClearOwnedMobiles(instanceId);
+        }
 
         if (rearm)
         {

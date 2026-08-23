@@ -83,7 +83,7 @@ public sealed class AutoEventGenerationTests
         Assert.True(result.TriggerResult?.Succeeded);
         var instance = Assert.Single(context.Events.EnumerateInstances());
         Assert.Equal(EventLifecycleState.Active, instance.State);
-        Assert.Equal(BritainBrigandEncounter.EncounterSize, instance.OwnedMobiles.Count);
+        Assert.Equal(BritainBrigandEncounter.Size, instance.OwnedMobiles.Count);
         Assert.NotNull(instance.SelectedLocationId);
         AssertState(context.WorldStates, WorldCondition.Threatened);
     }
@@ -205,6 +205,68 @@ public sealed class AutoEventGenerationTests
         Assert.Equal(triggered, manual.Triggered);
     }
 
+    [Fact]
+    public void EligibleDefinitionsAreSortedOrdinally()
+    {
+        using var context = new DualContext(0.0);
+        Assert.True(context.Generator.Enable(StartUtc));
+
+        Assert.Equal(
+            new[] { KnownEvents.BritainUndeadDisturbance, KnownEvents.BritainDisturbance },
+            context.Generator.GetEligibleDefinitions()
+        );
+    }
+
+    [Theory]
+    [InlineData(0.0, "event.britain.undead-disturbance")]
+    [InlineData(0.999999, "event.test.britain-disturbance")]
+    public void EqualSelectionCanChooseEitherEligibleDefinition(double selection, string expectedDefinition)
+    {
+        using var context = new DualContext(0.0, 0.34, selection, 0.0);
+        Assert.True(context.Generator.Enable(StartUtc));
+
+        var result = context.Generator.Evaluate(StartUtc.AddMinutes(5));
+
+        Assert.True(result.TriggerResult?.Succeeded);
+        Assert.Equal(new EventDefinitionId(expectedDefinition), result.SelectedDefinitionId);
+        Assert.Equal(new EventDefinitionId(expectedDefinition), Assert.Single(context.Events.EnumerateInstances()).DefinitionId);
+    }
+
+    [Fact]
+    public void SameRandomSequenceProducesSameDefinitionSequence()
+    {
+        var first = RunDefinitionSequence();
+        var second = RunDefinitionSequence();
+
+        Assert.Equal(first, second);
+        Assert.Equal(
+            new[] { KnownEvents.BritainUndeadDisturbance, KnownEvents.BritainDisturbance },
+            first
+        );
+    }
+
+    [Fact]
+    public void ActiveBritainEncounterBlocksBothAutomaticDefinitions()
+    {
+        using var context = new DualContext(0.0);
+        Assert.True(context.Generator.Enable(StartUtc));
+        Assert.True(context.Service.Trigger(KnownEvents.BritainUndeadDisturbance, InstanceId, StartUtc).Succeeded);
+
+        Assert.Empty(context.Generator.GetEligibleDefinitions());
+    }
+
+    private static EventDefinitionId[] RunDefinitionSequence()
+    {
+        using var context = new DualContext(0.0, 0.1, 0.0, 0.2, 0.1, 0.999999, 0.2);
+        Assert.True(context.Generator.Enable(StartUtc));
+        var first = context.Generator.Evaluate(StartUtc.AddMinutes(5));
+        Assert.True(first.TriggerResult?.Succeeded);
+        Assert.True(context.Service.Complete(first.TriggerResult.Value.EventResult.Instance.Id, StartUtc.AddMinutes(6)).Succeeded);
+        var second = context.Generator.Evaluate(StartUtc.AddMinutes(10));
+        Assert.True(second.TriggerResult?.Succeeded);
+        return [first.SelectedDefinitionId.Value, second.SelectedDefinitionId.Value];
+    }
+
     private static EvaluationSnapshot RunEvaluation(bool throughTimer, double decision)
     {
         using var clock = new SimulationClock(StartUtc);
@@ -275,6 +337,41 @@ public sealed class AutoEventGenerationTests
         public TestEventEncounterSpawner Encounter { get; }
         public AndraxiaEventService Service { get; }
         public SequenceAutoEventRandom Random { get; }
+        public AndraxiaAutoEventGenerator Generator { get; }
+
+        public void Dispose()
+        {
+            Generator.StopTimer();
+            Service.StopExpirationTimer();
+        }
+    }
+
+    private sealed class DualContext : IDisposable
+    {
+        public DualContext(params double[] randomValues)
+        {
+            Events = new EventStore(KnownEvents.Definitions);
+            var states = new WorldStateStore(KnownWorldStates.Definitions);
+            Service = new AndraxiaEventService(
+                Events,
+                states,
+                new IEventEncounterSpawner[]
+                {
+                    new TestEventEncounterSpawner(1),
+                    new TestEventEncounterSpawner(100) { DefinitionId = KnownEvents.BritainUndeadDisturbance }
+                },
+                new DeterministicEncounterLocationSelector()
+            );
+            Generator = new AndraxiaAutoEventGenerator(
+                Events,
+                states,
+                Service,
+                new SequenceAutoEventRandom(randomValues)
+            );
+        }
+
+        public EventStore Events { get; }
+        public AndraxiaEventService Service { get; }
         public AndraxiaAutoEventGenerator Generator { get; }
 
         public void Dispose()

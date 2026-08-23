@@ -286,7 +286,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
     {
         var active = _events.EnumerateInstances().FirstOrDefault(
             static instance =>
-                instance.DefinitionId == KnownEvents.BritainDisturbance &&
+                instance.TargetId == KnownEvents.Britain &&
                 instance.State == EventLifecycleState.Active
         );
 
@@ -329,7 +329,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
         if (condition == WorldCondition.Threatened)
         {
             logger.Warning(
-                "Britain is Threatened with no active Andraxia Britain-disturbance event; " +
+                "Britain is Threatened with no active Andraxia Britain event; " +
                 "leaving world state unchanged for administrative inspection"
             );
         }

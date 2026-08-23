@@ -26,7 +26,7 @@ public sealed class EventEncounterTests : IDisposable
 
         Assert.True(result.Succeeded);
         Assert.True(events.TryGetInstance(InstanceId, out var instance));
-        Assert.Equal(BritainBrigandEncounter.EncounterSize, instance.OwnedMobiles.Count);
+        Assert.Equal(BritainBrigandEncounter.Size, instance.OwnedMobiles.Count);
         Assert.Equal(EventLifecycleState.Active, instance.State);
         Assert.Equal(encounter.SelectedLocation.Id, instance.SelectedLocationId);
         Assert.Equal(
@@ -76,7 +76,7 @@ public sealed class EventEncounterTests : IDisposable
         Assert.Equal(0, automatic.CallCount);
         Assert.Equal(KnownEncounterLocations.BritainRoadNorth, result.EventResult.Instance.SelectedLocationId);
         Assert.Equal(KnownEncounterLocations.BritainRoadNorth, encounter.SelectedLocation.Id);
-        Assert.Equal(BritainBrigandEncounter.EncounterSize, result.EventResult.Instance.OwnedMobiles.Count);
+        Assert.Equal(BritainBrigandEncounter.Size, result.EventResult.Instance.OwnedMobiles.Count);
         AssertState(states, WorldCondition.Threatened);
     }
 
@@ -127,7 +127,7 @@ public sealed class EventEncounterTests : IDisposable
         );
 
         Assert.False(result.Succeeded);
-        Assert.Equal(EventTransitionFailure.UnknownEncounterLocation, result.EventResult.Failure);
+        Assert.Equal(EventTransitionFailure.EncounterUnavailable, result.EventResult.Failure);
         Assert.Empty(events.EnumerateInstances());
         Assert.Null(encounter.SelectedLocation);
         AssertState(states, WorldCondition.Normal);
