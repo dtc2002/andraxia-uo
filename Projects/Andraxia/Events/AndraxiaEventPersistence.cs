@@ -8,7 +8,7 @@ namespace Server.Andraxia;
 
 public sealed class AndraxiaEventPersistence : GenericPersistence
 {
-    internal const int CurrentVersion = 3;
+    internal const int CurrentVersion = 4;
     internal const string PersistenceName = "AndraxiaEvents";
     internal const int MaxEntryCount = 10_000;
     internal const int MaxOwnedMobileCount = 100;
@@ -17,16 +17,27 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
     private readonly EventStore _events;
     private readonly WorldStateStore _worldStates;
     private readonly AndraxiaEventService _service;
+    private readonly AndraxiaAutoEventGenerator _generator;
 
     public AndraxiaEventPersistence(
         EventStore events,
         WorldStateStore worldStates,
         AndraxiaEventService service
+    ) : this(events, worldStates, service, new AndraxiaAutoEventGenerator(events, worldStates, service))
+    {
+    }
+
+    internal AndraxiaEventPersistence(
+        EventStore events,
+        WorldStateStore worldStates,
+        AndraxiaEventService service,
+        AndraxiaAutoEventGenerator generator
     ) : base(PersistenceName, 10)
     {
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _worldStates = worldStates ?? throw new ArgumentNullException(nameof(worldStates));
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _generator = generator ?? throw new ArgumentNullException(nameof(generator));
     }
 
     public override void Serialize(IGenericWriter writer)
@@ -63,17 +74,27 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 writer.Write(locationId.Value);
             }
         }
+
+        writer.Write(_generator.Enabled);
+        writer.Write(_generator.NextEvaluationUtc.HasValue);
+        if (_generator.NextEvaluationUtc is { } nextEvaluationUtc)
+        {
+            writer.Write(nextEvaluationUtc);
+        }
+        writer.Write(_generator.RandomState);
     }
 
     public override void Deserialize(string savePath, Dictionary<ulong, string> typesDb)
     {
         _events.Clear();
+        _generator.ResetDefaults();
         base.Deserialize(savePath, typesDb);
     }
 
     public override void Deserialize(IGenericReader reader)
     {
         _events.Clear();
+        _generator.ResetDefaults();
 
         var version = reader.ReadEncodedInt();
         if (version is < 0 or > CurrentVersion)
@@ -238,6 +259,19 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 );
             }
         }
+
+        if (version >= 4)
+        {
+            var enabled = reader.ReadBool();
+            DateTime? nextEvaluationUtc = reader.ReadBool() ? reader.ReadDateTime() : null;
+            var randomState = reader.ReadULong();
+            if (nextEvaluationUtc is { Kind: not DateTimeKind.Utc })
+            {
+                throw new InvalidDataException("Persisted automatic-event evaluation time must be UTC.");
+            }
+
+            _generator.Restore(enabled, nextEvaluationUtc, randomState);
+        }
     }
 
     public override void PostDeserialize()
@@ -245,6 +279,7 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
         ReconcileWorldState();
         _service.RecoverOwnedMobiles(Core.Now);
         _service.Advance(Core.Now);
+        _generator.Recover(Core.Now);
     }
 
     internal void ReconcileWorldState()

@@ -11,6 +11,7 @@ public static class AndraxiaAssembly
     internal static WorldStateStore WorldStates { get; private set; }
     internal static EventStore Events { get; private set; }
     internal static AndraxiaEventService EventService { get; private set; }
+    internal static AndraxiaAutoEventGenerator AutoEvents { get; private set; }
 
     public static void Configure()
     {
@@ -23,9 +24,10 @@ public static class AndraxiaAssembly
         _worldStatePersistence = new AndraxiaWorldStatePersistence(WorldStates);
         Events = new EventStore(KnownEvents.Definitions);
         EventService = new AndraxiaEventService(Events, WorldStates);
+        AutoEvents = new AndraxiaAutoEventGenerator(Events, WorldStates, EventService);
         EventEncounterLifecycle.Configure(EventService);
-        _eventPersistence = new AndraxiaEventPersistence(Events, WorldStates, EventService);
+        _eventPersistence = new AndraxiaEventPersistence(Events, WorldStates, EventService, AutoEvents);
         WorldStateCommands.Configure(WorldStates);
-        EventCommands.Configure(EventService, Events);
+        EventCommands.Configure(EventService, Events, AutoEvents);
     }
 }

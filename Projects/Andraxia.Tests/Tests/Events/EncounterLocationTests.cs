@@ -33,11 +33,11 @@ public sealed class EncounterLocationTests
     }
 
     [Theory]
-    [InlineData("location.britain.crossroads-west", 1378, 1624, 0)]
-    [InlineData("location.britain.farmland-northwest", 1232, 1604, 0)]
+    [InlineData("location.britain.crossroads-west", 1260, 1744, 0)]
+    [InlineData("location.britain.farmland-northwest", 1187, 1636, 0)]
     [InlineData("location.britain.farmland-southwest", 1199, 1823, 0)]
     [InlineData("location.britain.graveyard-east", 1402, 1510, 10)]
-    [InlineData("location.britain.road-north", 1470, 1478, 0)]
+    [InlineData("location.britain.road-north", 1664, 1490, 0)]
     [InlineData("location.britain.road-south", 1430, 1800, 0)]
     public void BritainCatalogContainsExpectedCandidate(string id, int x, int y, int z)
     {

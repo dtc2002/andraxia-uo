@@ -17,7 +17,7 @@ public class AndraxiaEventPersistenceTests
     [InlineData(EventLifecycleState.Active)]
     [InlineData(EventLifecycleState.Succeeded)]
     [InlineData(EventLifecycleState.Failed)]
-    public void VersionThreeRoundTripsEventAndUtcTimestamps(EventLifecycleState state)
+    public void VersionFourRoundTripsEventAndUtcTimestamps(EventLifecycleState state)
     {
         WithTemporaryDirectory(
             directory =>
@@ -40,7 +40,7 @@ public class AndraxiaEventPersistenceTests
     }
 
     [Fact]
-    public void VersionThreeRoundTripsOwnedMobilesAndSelectedLocation()
+    public void VersionFourRoundTripsOwnedMobilesAndSelectedLocation()
     {
         using var source = new TestContext();
         using var loaded = new TestContext();

@@ -7,8 +7,13 @@ internal static class EventCommands
 {
     private static AndraxiaEventService _service;
     private static EventStore _store;
+    private static AndraxiaAutoEventGenerator _autoEvents;
 
-    public static void Configure(AndraxiaEventService service, EventStore store)
+    public static void Configure(
+        AndraxiaEventService service,
+        EventStore store,
+        AndraxiaAutoEventGenerator autoEvents
+    )
     {
         if (_service != null)
         {
@@ -17,10 +22,12 @@ internal static class EventCommands
 
         _service = service;
         _store = store;
+        _autoEvents = autoEvents;
         CommandSystem.Register("AndraxiaEvents", AccessLevel.Owner, ListEvents_OnCommand);
         CommandSystem.Register("AndraxiaEventTrigger", AccessLevel.Owner, TriggerEvent_OnCommand);
         CommandSystem.Register("AndraxiaEventComplete", AccessLevel.Owner, CompleteEvent_OnCommand);
         CommandSystem.Register("AndraxiaEventFail", AccessLevel.Owner, FailEvent_OnCommand);
+        CommandSystem.Register("AndraxiaAutoEvents", AccessLevel.Owner, AutoEvents_OnCommand);
     }
 
     [Usage("AndraxiaEvents")]
@@ -175,5 +182,93 @@ internal static class EventCommands
         }
 
         e.Mobile.SendMessage($"Rejected Andraxia event operation: {result.EventResult.Failure}.");
+    }
+
+    [Usage("AndraxiaAutoEvents [on|off|evaluate]")]
+    [Description("Displays, controls, or immediately evaluates automatic Andraxia event generation.")]
+    private static void AutoEvents_OnCommand(CommandEventArgs e)
+    {
+        if (e.Length == 0)
+        {
+            SendAutoEventStatus(e);
+            return;
+        }
+
+        if (e.Length != 1)
+        {
+            e.Mobile.SendMessage("Usage: AndraxiaAutoEvents [on|off|evaluate]");
+            return;
+        }
+
+        var option = e.GetString(0);
+        if (option.InsensitiveEquals("evaluate"))
+        {
+            var result = _autoEvents.Evaluate(Core.Now);
+            CommandLogging.WriteLine(e.Mobile, "evaluated automatic Andraxia event generation");
+
+            if (!result.Evaluated)
+            {
+                e.Mobile.SendMessage("AutoEvents evaluation: disabled.");
+            }
+            else if (!result.Eligible)
+            {
+                e.Mobile.SendMessage("AutoEvents evaluation: ineligible.");
+            }
+            else if (result.TriggerResult?.Succeeded == true)
+            {
+                e.Mobile.SendMessage("AutoEvents evaluation: triggered.");
+            }
+            else
+            {
+                e.Mobile.SendMessage("AutoEvents evaluation: eligible/no trigger.");
+            }
+
+            return;
+        }
+
+        if (option.InsensitiveEquals("on"))
+        {
+            if (_autoEvents.Enable(Core.Now))
+            {
+                CommandLogging.WriteLine(e.Mobile, "enabled automatic Andraxia event generation");
+                e.Mobile.SendMessage("Automatic Andraxia events enabled.");
+            }
+            else
+            {
+                e.Mobile.SendMessage("Automatic Andraxia events are already enabled.");
+            }
+        }
+        else if (option.InsensitiveEquals("off"))
+        {
+            if (_autoEvents.Disable())
+            {
+                CommandLogging.WriteLine(e.Mobile, "disabled automatic Andraxia event generation");
+                e.Mobile.SendMessage("Automatic Andraxia events disabled.");
+            }
+            else
+            {
+                e.Mobile.SendMessage("Automatic Andraxia events are already disabled.");
+            }
+        }
+        else
+        {
+            e.Mobile.SendMessage("Usage: AndraxiaAutoEvents [on|off|evaluate]");
+            return;
+        }
+
+        SendAutoEventStatus(e);
+    }
+
+    private static void SendAutoEventStatus(CommandEventArgs e)
+    {
+        var next = _autoEvents.NextEvaluationUtc is { } nextUtc ? nextUtc.ToString("O") : "-";
+        e.Mobile.SendMessage(
+            $"AutoEvents: {(_autoEvents.Enabled ? "enabled" : "disabled")}, next {next}"
+        );
+        e.Mobile.SendMessage(
+            $"Delay {AndraxiaAutoEventGenerator.MinimumDelay.TotalMinutes:0}-" +
+            $"{AndraxiaAutoEventGenerator.MaximumDelay.TotalMinutes:0}m, " +
+            $"chance {AndraxiaAutoEventGenerator.TriggerProbability:P0}"
+        );
     }
 }
