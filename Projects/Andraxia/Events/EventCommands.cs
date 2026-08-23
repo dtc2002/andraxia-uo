@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using Server.Commands;
 
@@ -24,82 +25,163 @@ internal static class EventCommands
         _store = store;
         _autoEvents = autoEvents;
         CommandSystem.Register("AndraxiaEvents", AccessLevel.Owner, ListEvents_OnCommand);
+        CommandSystem.Register("AndraxiaEvent", AccessLevel.Owner, EventDetail_OnCommand);
         CommandSystem.Register("AndraxiaEventTrigger", AccessLevel.Owner, TriggerEvent_OnCommand);
         CommandSystem.Register("AndraxiaEventComplete", AccessLevel.Owner, CompleteEvent_OnCommand);
         CommandSystem.Register("AndraxiaEventFail", AccessLevel.Owner, FailEvent_OnCommand);
         CommandSystem.Register("AndraxiaAutoEvents", AccessLevel.Owner, AutoEvents_OnCommand);
     }
 
-    [Usage("AndraxiaEvents")]
-    [Description("Displays Andraxia event instances.")]
+    [Usage("AndraxiaEvents [history]")]
+    [Description("Displays active Andraxia events or recent terminal history.")]
     private static void ListEvents_OnCommand(CommandEventArgs e)
     {
-        if (e.Length != 0)
+        string[] lines;
+        if (e.Length == 0)
         {
-            e.Mobile.SendMessage("Usage: AndraxiaEvents");
+            lines = BuildSummaryLines(_store, _service, _autoEvents);
+        }
+        else if (e.Length == 1 && e.GetString(0).InsensitiveEquals("history"))
+        {
+            lines = BuildHistoryLines(_store);
+        }
+        else
+        {
+            e.Mobile.SendMessage("Usage: AndraxiaEvents [history]");
             return;
         }
 
-        var instances = _store.EnumerateInstances().OrderBy(static instance => instance.Id.Value).ToArray();
-        e.Mobile.SendMessage("--- Andraxia Events ---");
-
-        if (instances.Length == 0)
+        foreach (var line in lines)
         {
-            e.Mobile.SendMessage("No event instances.");
-            return;
-        }
-
-        foreach (var instance in instances)
-        {
-            _store.TryGetDefinition(instance.DefinitionId, out var definition);
-            var completed = instance.CompletedUtc is { } completedUtc
-                ? $", completed {completedUtc:O}"
-                : null;
-            e.Mobile.SendMessage(
-                $"{instance.Id}: {definition?.DisplayName ?? "Unknown event"} ({instance.DefinitionId}), " +
-                $"target {instance.TargetId}, " +
-                $"state {EventLifecycleTokens.GetToken(instance.State)}, started {instance.StartedUtc:O}, " +
-                $"expires {instance.ExpiresUtc:O}{completed}, size/owned {instance.OwnedMobiles.Count}, " +
-                $"remaining {instance.OwnedMobiles.Count(serial => World.FindMobile(serial) is { Deleted: false })}"
-            );
-
-            if (instance.SelectedLocationId is not { } locationId)
-            {
-                e.Mobile.SendMessage("  Location=- Map=- Anchor=-");
-            }
-            else if (KnownEncounterLocations.TryGet(locationId, out var location))
-            {
-                e.Mobile.SendMessage(
-                    $"  Location={location.DisplayName} ({locationId}) Map={location.Map.Name} " +
-                    $"Anchor={location.X},{location.Y},{location.Z}"
-                );
-            }
-            else
-            {
-                e.Mobile.SendMessage($"  Location={locationId} Map=? Anchor=?");
-            }
-
-            if (instance.State != EventLifecycleState.Active)
-            {
-                continue;
-            }
-
-            foreach (var serial in instance.OwnedMobiles)
-            {
-                var mobile = World.FindMobile(serial, true);
-                if (mobile == null)
-                {
-                    e.Mobile.SendMessage($"  {serial} Type=missing Map=- Pos=- Alive=? Deleted=?");
-                    continue;
-                }
-
-                e.Mobile.SendMessage(
-                    $"  {serial} Type={mobile.GetType().Name} Map={mobile.Map?.Name ?? "-"} " +
-                    $"Pos={mobile.X},{mobile.Y},{mobile.Z} Alive={mobile.Alive} Deleted={mobile.Deleted}"
-                );
-            }
+            e.Mobile.SendMessage(line);
         }
     }
+
+    [Usage("AndraxiaEvent <instance-id>")]
+    [Description("Displays deep diagnostics for one Andraxia event instance.")]
+    private static void EventDetail_OnCommand(CommandEventArgs e)
+    {
+        if (e.Length != 1 || !EventInstanceId.TryParse(e.GetString(0), out var instanceId))
+        {
+            e.Mobile.SendMessage("Usage: AndraxiaEvent <instance-id>");
+            return;
+        }
+
+        foreach (var line in BuildDetailLines(_store, _service, instanceId))
+        {
+            e.Mobile.SendMessage(line);
+        }
+    }
+
+    internal static string[] BuildSummaryLines(
+        EventStore store,
+        AndraxiaEventService service,
+        AndraxiaAutoEventGenerator autoEvents
+    )
+    {
+        List<string> lines = ["--- Active Andraxia Events ---"];
+        var active = store.EnumerateInstances()
+            .Where(static instance => instance.State == EventLifecycleState.Active)
+            .OrderBy(static instance => instance.ExpiresUtc)
+            .ThenBy(static instance => instance.Id.Value)
+            .ToArray();
+        if (active.Length == 0)
+        {
+            lines.Add("No active events.");
+        }
+
+        foreach (var instance in active)
+        {
+            store.TryGetDefinition(instance.DefinitionId, out var definition);
+            KnownEncounterLocations.TryGet(instance.SelectedLocationId ?? default, out var location);
+            lines.Add($"{definition?.DisplayName ?? "Unknown event"} [{instance.Id}]");
+            lines.Add(
+                $"  {EventLifecycleTokens.GetToken(instance.State)} | {location?.DisplayName ?? "Unknown location"} | " +
+                $"remaining {Remaining(instance)}/{instance.OwnedMobiles.Count} | expires {instance.ExpiresUtc:O}"
+            );
+            lines.Add($"  Rumor: {location?.RumorText ?? "-"}");
+            lines.Add($"  Town Crier registered: {(service.IsRumorRegistered(instance.Id) ? "Yes" : "No")}");
+        }
+
+        lines.Add(
+            $"AutoEvents: {(autoEvents.Enabled ? "enabled" : "disabled")}, " +
+            $"next {(autoEvents.NextEvaluationUtc?.ToString("O") ?? "-")}"
+        );
+        return lines.ToArray();
+    }
+
+    internal static string[] BuildHistoryLines(EventStore store)
+    {
+        List<string> lines = ["--- Recent Andraxia Event History ---"];
+        var terminal = store.EnumerateInstances()
+            .Where(static instance => instance.State != EventLifecycleState.Active)
+            .OrderByDescending(static instance => instance.CompletedUtc)
+            .ThenByDescending(static instance => instance.Id.Value)
+            .ToArray();
+        if (terminal.Length == 0)
+        {
+            lines.Add("No terminal event history.");
+        }
+
+        foreach (var instance in terminal)
+        {
+            store.TryGetDefinition(instance.DefinitionId, out var definition);
+            lines.Add(
+                $"{instance.CompletedUtc:O} | {definition?.DisplayName ?? instance.DefinitionId.Value} | " +
+                $"{EventLifecycleTokens.GetToken(instance.State)} | {instance.Id}"
+            );
+        }
+
+        return lines.ToArray();
+    }
+
+    internal static string[] BuildDetailLines(
+        EventStore store,
+        AndraxiaEventService service,
+        EventInstanceId instanceId
+    )
+    {
+        if (!store.TryGetInstance(instanceId, out var instance))
+        {
+            return [$"Andraxia event '{instanceId}' was not found."];
+        }
+
+        store.TryGetDefinition(instance.DefinitionId, out var definition);
+        EncounterLocation location = null;
+        var hasLocation = instance.SelectedLocationId is { } locationId &&
+                          KnownEncounterLocations.TryGet(locationId, out location);
+        List<string> lines =
+        [
+            $"--- {definition?.DisplayName ?? "Unknown event"} ---",
+            $"Instance={instance.Id} Definition={instance.DefinitionId}",
+            $"State={EventLifecycleTokens.GetToken(instance.State)} Target={instance.TargetId}",
+            hasLocation
+                ? $"Location={location.DisplayName} ({location.Id}) Map={location.Map?.Name ?? "-"} " +
+                  $"Anchor={location.X},{location.Y},{location.Z}"
+                : $"Location={instance.SelectedLocationId?.Value ?? "-"} Map=? Anchor=?",
+            $"Started={instance.StartedUtc:O} Expires={instance.ExpiresUtc:O} " +
+            $"Completed={instance.CompletedUtc?.ToString("O") ?? "-"}",
+            $"Owned={instance.OwnedMobiles.Count} Remaining={Remaining(instance)}",
+            $"Rumor: {(hasLocation ? location.RumorText : "-")}",
+            $"Town Crier registered: {(service.IsRumorRegistered(instance.Id) ? "Yes" : "No")}"
+        ];
+
+        foreach (var serial in instance.OwnedMobiles)
+        {
+            var mobile = World.FindMobile(serial, true);
+            lines.Add(
+                mobile == null
+                    ? $"  {serial} Type=missing Map=- Pos=- Alive=? Deleted=?"
+                    : $"  {serial} Type={mobile.GetType().Name} Map={mobile.Map?.Name ?? "-"} " +
+                      $"Pos={mobile.X},{mobile.Y},{mobile.Z} Alive={mobile.Alive} Deleted={mobile.Deleted}"
+            );
+        }
+
+        return lines.ToArray();
+    }
+
+    private static int Remaining(EventInstance instance) =>
+        instance.OwnedMobiles.Count(serial => World.FindMobile(serial) is { Deleted: false });
 
     [Usage("AndraxiaEventTrigger <event-definition-id> [location-id]")]
     [Description("Triggers a registered Andraxia encounter event.")]

@@ -246,7 +246,8 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 expiresUtc,
                 completedUtc,
                 ownedMobiles,
-                selectedLocationId
+                selectedLocationId,
+                false
             );
 
             if (failure != EventRestoreFailure.None)
@@ -276,9 +277,16 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
 
     public override void PostDeserialize()
     {
+        var pruned = _events.PruneTerminalHistory();
+        if (pruned != 0)
+        {
+            logger.Information("Pruned {Count} old Andraxia terminal event records after loading", pruned);
+        }
+
         ReconcileWorldState();
         _service.RecoverOwnedMobiles(Core.Now);
-        _service.Advance(Core.Now);
+        _service.AdvanceAfterDeserialize(Core.Now);
+        _service.RestoreActiveRumors();
         _generator.Recover(Core.Now);
     }
 

@@ -22,6 +22,7 @@ public sealed class AndraxiaEventService
     private readonly Dictionary<EventDefinitionId, IEventEncounterSpawner> _encounters = [];
     private readonly IEncounterLocationSelector _locationSelector;
     private readonly Func<int> _ordinaryPlayerCount;
+    private readonly IEventAwareness _awareness;
 
     public AndraxiaEventService(EventStore events, WorldStateStore worldStates) :
         this(
@@ -29,7 +30,8 @@ public sealed class AndraxiaEventService
             worldStates,
             [new BritainBrigandEncounter(), new BritainUndeadEncounter()],
             new DeterministicEncounterLocationSelector(),
-            OnlinePlayerCounter.CountOrdinaryPlayers
+            OnlinePlayerCounter.CountOrdinaryPlayers,
+            new ModernUOEventAwareness()
         )
     {
     }
@@ -38,7 +40,14 @@ public sealed class AndraxiaEventService
         EventStore events,
         WorldStateStore worldStates,
         IEventEncounterSpawner encounter
-    ) : this(events, worldStates, [encounter], new DeterministicEncounterLocationSelector(), static () => 0)
+    ) : this(
+        events,
+        worldStates,
+        [encounter],
+        new DeterministicEncounterLocationSelector(),
+        static () => 0,
+        NullEventAwareness.Instance
+    )
     {
     }
 
@@ -47,7 +56,7 @@ public sealed class AndraxiaEventService
         WorldStateStore worldStates,
         IEventEncounterSpawner encounter,
         IEncounterLocationSelector locationSelector
-    ) : this(events, worldStates, [encounter], locationSelector, static () => 0)
+    ) : this(events, worldStates, [encounter], locationSelector, static () => 0, NullEventAwareness.Instance)
     {
     }
 
@@ -56,7 +65,8 @@ public sealed class AndraxiaEventService
         WorldStateStore worldStates,
         IEnumerable<IEventEncounterSpawner> encounters,
         IEncounterLocationSelector locationSelector,
-        Func<int> ordinaryPlayerCount = null
+        Func<int> ordinaryPlayerCount = null,
+        IEventAwareness awareness = null
     )
     {
         _events = events;
@@ -71,6 +81,7 @@ public sealed class AndraxiaEventService
         }
         _locationSelector = locationSelector ?? throw new ArgumentNullException(nameof(locationSelector));
         _ordinaryPlayerCount = ordinaryPlayerCount ?? (static () => 0);
+        _awareness = awareness ?? NullEventAwareness.Instance;
         _scheduler = new AndraxiaEventExpirationScheduler(events, Advance);
     }
 
@@ -167,6 +178,7 @@ public sealed class AndraxiaEventService
             worldStateResult
         );
         _scheduler.Rearm(nowUtc);
+        PublishActivation(result.EventResult.Instance);
         return result;
     }
 
@@ -182,7 +194,9 @@ public sealed class AndraxiaEventService
     public AndraxiaEventResult Fail(EventInstanceId instanceId, DateTime nowUtc) =>
         Transition(instanceId, EventLifecycleState.Failed, nowUtc, true);
 
-    public void Advance(DateTime nowUtc)
+    public void Advance(DateTime nowUtc) => Advance(nowUtc, true);
+
+    private void Advance(DateTime nowUtc, bool publishAwareness)
     {
         ValidateUtc(nowUtc);
 
@@ -195,7 +209,7 @@ public sealed class AndraxiaEventService
 
         foreach (var instanceId in due)
         {
-            var result = Transition(instanceId, EventLifecycleState.Failed, nowUtc, false);
+            var result = Transition(instanceId, EventLifecycleState.Failed, nowUtc, false, publishAwareness);
             if (!result.Succeeded)
             {
                 logger.Error(
@@ -266,7 +280,13 @@ public sealed class AndraxiaEventService
 
             if (restored.OwnedMobiles.Count == 0)
             {
-                var result = Complete(restored.Id, nowUtc);
+                var result = Transition(
+                    restored.Id,
+                    EventLifecycleState.Succeeded,
+                    nowUtc,
+                    true,
+                    false
+                );
                 if (!result.Succeeded)
                 {
                     logger.Error(
@@ -285,7 +305,8 @@ public sealed class AndraxiaEventService
         EventInstanceId instanceId,
         EventLifecycleState requested,
         DateTime nowUtc,
-        bool rearm
+        bool rearm,
+        bool publishAwareness = true
     )
     {
         ValidateUtc(nowUtc);
@@ -328,7 +349,63 @@ public sealed class AndraxiaEventService
             _scheduler.Rearm(nowUtc);
         }
 
+        if (publishAwareness)
+        {
+            PublishResolution(result.EventResult.Instance);
+        }
+
         return result;
+    }
+
+    internal void AdvanceAfterDeserialize(DateTime nowUtc) => Advance(nowUtc, false);
+
+    internal void RestoreActiveRumors()
+    {
+        foreach (var instance in _events.EnumerateInstances().Where(static instance =>
+                     instance.State == EventLifecycleState.Active))
+        {
+            RegisterRumor(instance);
+        }
+    }
+
+    internal bool IsRumorRegistered(EventInstanceId instanceId) => _awareness.IsRumorRegistered(instanceId);
+
+    private void PublishActivation(EventInstance instance)
+    {
+        RegisterRumor(instance);
+
+        if (_events.TryGetDefinition(instance.DefinitionId, out var definition) &&
+            !string.IsNullOrWhiteSpace(definition.StartBroadcast))
+        {
+            _awareness.Broadcast(definition.StartBroadcast);
+        }
+    }
+
+    private void PublishResolution(EventInstance instance)
+    {
+        _awareness.RemoveRumor(instance.Id);
+        if (!_events.TryGetDefinition(instance.DefinitionId, out var definition))
+        {
+            return;
+        }
+
+        var text = instance.State == EventLifecycleState.Succeeded
+            ? definition.SuccessBroadcast
+            : definition.FailureBroadcast;
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            _awareness.Broadcast(text);
+        }
+    }
+
+    private void RegisterRumor(EventInstance instance)
+    {
+        if (instance.SelectedLocationId is { } locationId &&
+            KnownEncounterLocations.TryGetForDefinition(instance.DefinitionId, locationId, out var location) &&
+            !string.IsNullOrWhiteSpace(location.RumorText))
+        {
+            _awareness.RegisterRumor(instance.Id, location.RumorText);
+        }
     }
 
     private static void ValidateUtc(DateTime value)

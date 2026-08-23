@@ -38,6 +38,7 @@ public readonly record struct EventTransitionResult(
 
 public sealed class EventStore
 {
+    internal const int MaximumTerminalHistory = 32;
     private readonly Dictionary<EventDefinitionId, EventDefinition> _definitions = [];
     private readonly Dictionary<EventInstanceId, EventInstance> _instances = [];
 
@@ -154,6 +155,7 @@ public sealed class EventStore
             previous.SelectedLocationId
         );
         _instances[instanceId] = current;
+        PruneTerminalHistory();
         return new EventTransitionResult(true, EventTransitionFailure.None, current, previous.State, requested);
     }
 
@@ -166,7 +168,8 @@ public sealed class EventStore
         DateTime expiresUtc,
         DateTime? completedUtc,
         IReadOnlyCollection<Serial> ownedMobiles = null,
-        EncounterLocationId? selectedLocationId = null
+        EncounterLocationId? selectedLocationId = null,
+        bool pruneTerminalHistory = true
     )
     {
         if (!_definitions.TryGetValue(definitionId, out var definition))
@@ -210,7 +213,29 @@ public sealed class EventStore
                 selectedLocationId
             )
         );
+        if (pruneTerminalHistory)
+        {
+            PruneTerminalHistory();
+        }
         return EventRestoreFailure.None;
+    }
+
+    internal int PruneTerminalHistory()
+    {
+        var remove = _instances.Values
+            .Where(static instance => instance.State != EventLifecycleState.Active)
+            .OrderByDescending(static instance => instance.CompletedUtc)
+            .ThenByDescending(static instance => instance.Id.Value)
+            .Skip(MaximumTerminalHistory)
+            .Select(static instance => instance.Id)
+            .ToArray();
+
+        foreach (var instanceId in remove)
+        {
+            _instances.Remove(instanceId);
+        }
+
+        return remove.Length;
     }
 
     internal bool TryGetDefinition(EventDefinitionId id, out EventDefinition definition) =>

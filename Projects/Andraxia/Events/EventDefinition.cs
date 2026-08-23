@@ -4,7 +4,16 @@ namespace Server.Andraxia;
 
 public sealed record EventDefinition
 {
-    public EventDefinition(EventDefinitionId id, EventTargetId targetId, TimeSpan duration, string displayName = null)
+    public EventDefinition(
+        EventDefinitionId id,
+        EventTargetId targetId,
+        TimeSpan duration,
+        string displayName = null,
+        string description = null,
+        string startBroadcast = null,
+        string successBroadcast = null,
+        string failureBroadcast = null
+    )
     {
         if (duration <= TimeSpan.Zero)
         {
@@ -15,10 +24,18 @@ public sealed record EventDefinition
         TargetId = targetId;
         Duration = duration;
         DisplayName = string.IsNullOrWhiteSpace(displayName) ? id.Value : displayName;
+        Description = description;
+        StartBroadcast = startBroadcast;
+        SuccessBroadcast = successBroadcast;
+        FailureBroadcast = failureBroadcast;
     }
 
     public EventDefinitionId Id { get; }
     public EventTargetId TargetId { get; }
     public TimeSpan Duration { get; }
     public string DisplayName { get; }
+    public string Description { get; }
+    public string StartBroadcast { get; }
+    public string SuccessBroadcast { get; }
+    public string FailureBroadcast { get; }
 }

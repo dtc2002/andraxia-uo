@@ -6,10 +6,13 @@ public sealed record EncounterLocation(
     int X,
     int Y,
     int Z,
-    string DisplayName = null
+    string DisplayName = null,
+    string RumorText = null
 )
 {
     public Point3D Anchor => new(X, Y, Z);
 
     public string DisplayName { get; } = string.IsNullOrWhiteSpace(DisplayName) ? Id.Value : DisplayName;
+
+    public string RumorText { get; } = RumorText;
 }

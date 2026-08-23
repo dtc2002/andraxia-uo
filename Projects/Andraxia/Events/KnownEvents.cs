@@ -16,13 +16,21 @@ public static class KnownEvents
                 BritainDisturbance,
                 Britain,
                 TimeSpan.FromMinutes(5),
-                "Britain Brigand Disturbance"
+                "Britain Brigand Disturbance",
+                "Brigands are disrupting travel around Britain.",
+                "Word spreads of lawlessness near Britain.",
+                "Reports suggest the danger near Britain has passed.",
+                "The disturbance near Britain appears to have subsided."
             ),
             new EventDefinition(
                 BritainUndeadDisturbance,
                 Britain,
                 TimeSpan.FromMinutes(5),
-                "Britain Undead Disturbance"
+                "Britain Undead Disturbance",
+                "Restless dead have been reported around Britain.",
+                "Uneasy reports speak of strange activity near Britain.",
+                "Reports suggest the danger near Britain has passed.",
+                "The disturbance near Britain appears to have subsided."
             )
         ]
     );

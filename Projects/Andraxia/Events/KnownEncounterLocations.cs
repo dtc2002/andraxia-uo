@@ -27,22 +27,55 @@ public static class KnownEncounterLocations
 
     private static readonly ReadOnlyCollection<EncounterLocation> britainDisturbance = new(
         [
-            new(BritainCrossroadsWest, Map.Trammel, 1260, 1744, 0, "West Britain Crossroads"),
-            new(BritainFarmlandNorthwest, Map.Trammel, 1187, 1636, 0, "Northwest Britain Farmland"),
-            new(BritainFarmlandSouthwest, Map.Trammel, 1199, 1823, 0, "Southwest Britain Farmland"),
-            new(BritainGraveyardEast, Map.Trammel, 1402, 1510, 10, "East Britain Graveyard"),
-            new(BritainRoadNorth, Map.Trammel, 1664, 1490, 0, "North Britain Road"),
-            new(BritainRoadSouth, Map.Trammel, 1430, 1800, 0, "South Britain Road")
+            new(
+                BritainCrossroadsWest, Map.Trammel, 1260, 1744, 0, "West Britain Crossroads",
+                "Travelers report brigands troubling the crossroads west of Britain."
+            ),
+            new(
+                BritainFarmlandNorthwest, Map.Trammel, 1187, 1636, 0, "Northwest Britain Farmland",
+                "Farmers warn of brigands in the fields northwest of Britain."
+            ),
+            new(
+                BritainFarmlandSouthwest, Map.Trammel, 1199, 1823, 0, "Southwest Britain Farmland",
+                "Farmers report brigands in the countryside southwest of Britain."
+            ),
+            new(
+                BritainGraveyardEast, Map.Trammel, 1402, 1510, 10, "East Britain Graveyard",
+                "Travelers report brigands near Britain's eastern graveyard."
+            ),
+            new(
+                BritainRoadNorth, Map.Trammel, 1664, 1490, 0, "North Britain Road",
+                "Travelers report brigands along the roads north of Britain."
+            ),
+            new(
+                BritainRoadSouth, Map.Trammel, 1430, 1800, 0, "South Britain Road",
+                "Travelers warn of brigands along the roads south of Britain."
+            )
         ]
     );
 
     private static readonly ReadOnlyCollection<EncounterLocation> britainUndeadDisturbance = new(
         [
-            new(BritainUndeadGraveyardEast, Map.Trammel, 1408, 1492, 10, "East Britain Graveyard"),
-            new(BritainUndeadGraveyardWest, Map.Trammel, 1350, 1490, 10, "West Britain Graveyard"),
-            new(BritainUndeadRuinsNorth, Map.Trammel, 1510, 1400, 0, "North Britain Ruins"),
-            new(BritainUndeadWildernessEast, Map.Trammel, 1750, 1580, 0, "East Britain Wilderness"),
-            new(BritainUndeadWildernessSouth, Map.Trammel, 1450, 1840, 0, "South Britain Wilderness")
+            new(
+                BritainUndeadGraveyardEast, Map.Trammel, 1408, 1492, 10, "East Britain Graveyard",
+                "The dead are said to be restless near Britain's eastern graveyard."
+            ),
+            new(
+                BritainUndeadGraveyardWest, Map.Trammel, 1350, 1490, 10, "West Britain Graveyard",
+                "The dead are said to wander near Britain's western graveyard."
+            ),
+            new(
+                BritainUndeadRuinsNorth, Map.Trammel, 1510, 1400, 0, "North Britain Ruins",
+                "Travelers speak of restless dead among the ruins north of Britain."
+            ),
+            new(
+                BritainUndeadWildernessEast, Map.Trammel, 1750, 1580, 0, "East Britain Wilderness",
+                "Hunters speak of strange activity in the wilderness east of Britain."
+            ),
+            new(
+                BritainUndeadWildernessSouth, Map.Trammel, 1450, 1840, 0, "South Britain Wilderness",
+                "Hunters report restless dead in the wilderness south of Britain."
+            )
         ]
     );
 
