@@ -9,29 +9,40 @@ internal sealed class BritainUndeadEncounter : IEventEncounterSpawner
 {
     internal const int Size = 3;
 
-    private static readonly Point3D[] formationOffsets =
-    [
-        new(0, 0, 0),
-        new(3, 2, 0),
-        new(6, 0, 0)
-    ];
-
     internal static IReadOnlyList<Type> MobileTypes { get; } =
         [typeof(AndraxiaEncounterSkeleton), typeof(AndraxiaEncounterSkeleton), typeof(AndraxiaEncounterZombie)];
 
+    internal static IReadOnlyList<Type> GetMobileTypes(int encounterSize)
+    {
+        var skeletonCount = (encounterSize + 1) / 2;
+        var types = new Type[encounterSize];
+        for (var i = 0; i < types.Length; i++)
+        {
+            types[i] = i < skeletonCount ? typeof(AndraxiaEncounterSkeleton) : typeof(AndraxiaEncounterZombie);
+        }
+
+        return types;
+    }
+
     public EventDefinitionId DefinitionId => KnownEvents.BritainUndeadDisturbance;
     public IReadOnlyList<EncounterLocation> Locations => KnownEncounterLocations.BritainUndeadDisturbance;
-    public int EncounterSize => Size;
-
-    public bool TrySpawn(EncounterLocation location, ICollection<Serial> spawned, out string failure)
+    public bool TrySpawn(
+        EncounterLocation location,
+        int encounterSize,
+        ICollection<Serial> spawned,
+        out string failure
+    )
     {
         try
         {
-            for (var i = 0; i < formationOffsets.Length; i++)
+            var mobileTypes = GetMobileTypes(encounterSize);
+            for (var i = 0; i < encounterSize; i++)
             {
-                Mobile undead = i < 2 ? new AndraxiaEncounterSkeleton() : new AndraxiaEncounterZombie();
+                Mobile undead = mobileTypes[i] == typeof(AndraxiaEncounterSkeleton)
+                    ? new AndraxiaEncounterSkeleton()
+                    : new AndraxiaEncounterZombie();
                 spawned.Add(undead.Serial);
-                var offset = formationOffsets[i];
+                var offset = EncounterFormation.Offsets[i];
                 undead.MoveToWorld(
                     new Point3D(location.X + offset.X, location.Y + offset.Y, location.Z + offset.Z),
                     location.Map

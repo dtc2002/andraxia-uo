@@ -4,7 +4,7 @@ namespace Server.Andraxia;
 
 public sealed record EventDefinition
 {
-    public EventDefinition(EventDefinitionId id, EventTargetId targetId, TimeSpan duration)
+    public EventDefinition(EventDefinitionId id, EventTargetId targetId, TimeSpan duration, string displayName = null)
     {
         if (duration <= TimeSpan.Zero)
         {
@@ -14,9 +14,11 @@ public sealed record EventDefinition
         Id = id;
         TargetId = targetId;
         Duration = duration;
+        DisplayName = string.IsNullOrWhiteSpace(displayName) ? id.Value : displayName;
     }
 
     public EventDefinitionId Id { get; }
     public EventTargetId TargetId { get; }
     public TimeSpan Duration { get; }
+    public string DisplayName { get; }
 }

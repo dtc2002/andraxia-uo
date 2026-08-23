@@ -9,33 +9,29 @@ internal interface IEventEncounterSpawner
 {
     EventDefinitionId DefinitionId { get; }
     IReadOnlyList<EncounterLocation> Locations { get; }
-    int EncounterSize { get; }
-    bool TrySpawn(EncounterLocation location, ICollection<Serial> spawned, out string failure);
+    bool TrySpawn(EncounterLocation location, int encounterSize, ICollection<Serial> spawned, out string failure);
     void Delete(Serial serial);
     bool Exists(Serial serial);
 }
 
 internal sealed class BritainBrigandEncounter : IEventEncounterSpawner
 {
-    internal const int Size = 3;
+    internal const int Size = EncounterScalingPolicy.MinimumSize;
 
     public EventDefinitionId DefinitionId => KnownEvents.BritainDisturbance;
     public IReadOnlyList<EncounterLocation> Locations => KnownEncounterLocations.BritainDisturbance;
-    public int EncounterSize => Size;
-
-    private static readonly Point3D[] formationOffsets =
-    [
-        new(0, 0, 0),
-        new(3, 2, 0),
-        new(6, 0, 0)
-    ];
-
-    public bool TrySpawn(EncounterLocation location, ICollection<Serial> spawned, out string failure)
+    public bool TrySpawn(
+        EncounterLocation location,
+        int encounterSize,
+        ICollection<Serial> spawned,
+        out string failure
+    )
     {
         try
         {
-            foreach (var offset in formationOffsets)
+            for (var i = 0; i < encounterSize; i++)
             {
+                var offset = EncounterFormation.Offsets[i];
                 var brigand = new AndraxiaEncounterBrigand();
                 spawned.Add(brigand.Serial);
                 brigand.MoveToWorld(

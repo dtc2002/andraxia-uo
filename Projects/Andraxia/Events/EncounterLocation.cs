@@ -5,8 +5,11 @@ public sealed record EncounterLocation(
     Map Map,
     int X,
     int Y,
-    int Z
+    int Z,
+    string DisplayName = null
 )
 {
     public Point3D Anchor => new(X, Y, Z);
+
+    public string DisplayName { get; } = string.IsNullOrWhiteSpace(DisplayName) ? Id.Value : DisplayName;
 }

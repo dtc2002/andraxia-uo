@@ -12,8 +12,18 @@ public static class KnownEvents
 
     private static readonly ReadOnlyCollection<EventDefinition> _definitions = new(
         [
-            new EventDefinition(BritainDisturbance, Britain, TimeSpan.FromMinutes(5)),
-            new EventDefinition(BritainUndeadDisturbance, Britain, TimeSpan.FromMinutes(5))
+            new EventDefinition(
+                BritainDisturbance,
+                Britain,
+                TimeSpan.FromMinutes(5),
+                "Britain Brigand Disturbance"
+            ),
+            new EventDefinition(
+                BritainUndeadDisturbance,
+                Britain,
+                TimeSpan.FromMinutes(5),
+                "Britain Undead Disturbance"
+            )
         ]
     );
 

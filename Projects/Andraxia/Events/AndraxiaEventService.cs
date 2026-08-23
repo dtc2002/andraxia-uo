@@ -21,13 +21,15 @@ public sealed class AndraxiaEventService
     private readonly AndraxiaEventExpirationScheduler _scheduler;
     private readonly Dictionary<EventDefinitionId, IEventEncounterSpawner> _encounters = [];
     private readonly IEncounterLocationSelector _locationSelector;
+    private readonly Func<int> _ordinaryPlayerCount;
 
     public AndraxiaEventService(EventStore events, WorldStateStore worldStates) :
         this(
             events,
             worldStates,
             [new BritainBrigandEncounter(), new BritainUndeadEncounter()],
-            new DeterministicEncounterLocationSelector()
+            new DeterministicEncounterLocationSelector(),
+            OnlinePlayerCounter.CountOrdinaryPlayers
         )
     {
     }
@@ -36,7 +38,7 @@ public sealed class AndraxiaEventService
         EventStore events,
         WorldStateStore worldStates,
         IEventEncounterSpawner encounter
-    ) : this(events, worldStates, [encounter], new DeterministicEncounterLocationSelector())
+    ) : this(events, worldStates, [encounter], new DeterministicEncounterLocationSelector(), static () => 0)
     {
     }
 
@@ -45,7 +47,7 @@ public sealed class AndraxiaEventService
         WorldStateStore worldStates,
         IEventEncounterSpawner encounter,
         IEncounterLocationSelector locationSelector
-    ) : this(events, worldStates, [encounter], locationSelector)
+    ) : this(events, worldStates, [encounter], locationSelector, static () => 0)
     {
     }
 
@@ -53,7 +55,8 @@ public sealed class AndraxiaEventService
         EventStore events,
         WorldStateStore worldStates,
         IEnumerable<IEventEncounterSpawner> encounters,
-        IEncounterLocationSelector locationSelector
+        IEncounterLocationSelector locationSelector,
+        Func<int> ordinaryPlayerCount = null
     )
     {
         _events = events;
@@ -67,6 +70,7 @@ public sealed class AndraxiaEventService
             }
         }
         _locationSelector = locationSelector ?? throw new ArgumentNullException(nameof(locationSelector));
+        _ordinaryPlayerCount = ordinaryPlayerCount ?? (static () => 0);
         _scheduler = new AndraxiaEventExpirationScheduler(events, Advance);
     }
 
@@ -125,14 +129,16 @@ public sealed class AndraxiaEventService
             );
         }
 
+        // Snapshot population once. Owned serials, rather than population, govern the rest of the lifecycle.
+        var encounterSize = EncounterScalingPolicy.GetEncounterSize(_ordinaryPlayerCount());
         var worldStateResult = _worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened);
         if (!worldStateResult.Succeeded)
         {
             return new AndraxiaEventResult(validation with { Succeeded = false }, worldStateResult);
         }
 
-        var spawned = new List<Serial>(encounter.EncounterSize);
-        if (!encounter.TrySpawn(location, spawned, out var spawnFailure))
+        var spawned = new List<Serial>(encounterSize);
+        if (!encounter.TrySpawn(location, encounterSize, spawned, out var spawnFailure))
         {
             foreach (var serial in spawned)
             {

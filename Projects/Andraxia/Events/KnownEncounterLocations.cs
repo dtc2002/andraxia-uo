@@ -27,22 +27,22 @@ public static class KnownEncounterLocations
 
     private static readonly ReadOnlyCollection<EncounterLocation> britainDisturbance = new(
         [
-            new(BritainCrossroadsWest, Map.Trammel, 1260, 1744, 0),
-            new(BritainFarmlandNorthwest, Map.Trammel, 1187, 1636, 0),
-            new(BritainFarmlandSouthwest, Map.Trammel, 1199, 1823, 0),
-            new(BritainGraveyardEast, Map.Trammel, 1402, 1510, 10),
-            new(BritainRoadNorth, Map.Trammel, 1664, 1490, 0),
-            new(BritainRoadSouth, Map.Trammel, 1430, 1800, 0)
+            new(BritainCrossroadsWest, Map.Trammel, 1260, 1744, 0, "West Britain Crossroads"),
+            new(BritainFarmlandNorthwest, Map.Trammel, 1187, 1636, 0, "Northwest Britain Farmland"),
+            new(BritainFarmlandSouthwest, Map.Trammel, 1199, 1823, 0, "Southwest Britain Farmland"),
+            new(BritainGraveyardEast, Map.Trammel, 1402, 1510, 10, "East Britain Graveyard"),
+            new(BritainRoadNorth, Map.Trammel, 1664, 1490, 0, "North Britain Road"),
+            new(BritainRoadSouth, Map.Trammel, 1430, 1800, 0, "South Britain Road")
         ]
     );
 
     private static readonly ReadOnlyCollection<EncounterLocation> britainUndeadDisturbance = new(
         [
-            new(BritainUndeadGraveyardEast, Map.Trammel, 1408, 1492, 10),
-            new(BritainUndeadGraveyardWest, Map.Trammel, 1350, 1490, 10),
-            new(BritainUndeadRuinsNorth, Map.Trammel, 1510, 1400, 0),
-            new(BritainUndeadWildernessEast, Map.Trammel, 1750, 1580, 0),
-            new(BritainUndeadWildernessSouth, Map.Trammel, 1450, 1840, 0)
+            new(BritainUndeadGraveyardEast, Map.Trammel, 1408, 1492, 10, "East Britain Graveyard"),
+            new(BritainUndeadGraveyardWest, Map.Trammel, 1350, 1490, 10, "West Britain Graveyard"),
+            new(BritainUndeadRuinsNorth, Map.Trammel, 1510, 1400, 0, "North Britain Ruins"),
+            new(BritainUndeadWildernessEast, Map.Trammel, 1750, 1580, 0, "East Britain Wilderness"),
+            new(BritainUndeadWildernessSouth, Map.Trammel, 1450, 1840, 0, "South Britain Wilderness")
         ]
     );
 

@@ -51,13 +51,15 @@ internal static class EventCommands
 
         foreach (var instance in instances)
         {
+            _store.TryGetDefinition(instance.DefinitionId, out var definition);
             var completed = instance.CompletedUtc is { } completedUtc
                 ? $", completed {completedUtc:O}"
                 : null;
             e.Mobile.SendMessage(
-                $"{instance.Id}: {instance.DefinitionId}, target {instance.TargetId}, " +
+                $"{instance.Id}: {definition?.DisplayName ?? "Unknown event"} ({instance.DefinitionId}), " +
+                $"target {instance.TargetId}, " +
                 $"state {EventLifecycleTokens.GetToken(instance.State)}, started {instance.StartedUtc:O}, " +
-                $"expires {instance.ExpiresUtc:O}{completed}, owned {instance.OwnedMobiles.Count}, " +
+                $"expires {instance.ExpiresUtc:O}{completed}, size/owned {instance.OwnedMobiles.Count}, " +
                 $"remaining {instance.OwnedMobiles.Count(serial => World.FindMobile(serial) is { Deleted: false })}"
             );
 
@@ -68,7 +70,8 @@ internal static class EventCommands
             else if (KnownEncounterLocations.TryGet(locationId, out var location))
             {
                 e.Mobile.SendMessage(
-                    $"  Location={locationId} Map={location.Map.Name} Anchor={location.X},{location.Y},{location.Z}"
+                    $"  Location={location.DisplayName} ({locationId}) Map={location.Map.Name} " +
+                    $"Anchor={location.X},{location.Y},{location.Z}"
                 );
             }
             else

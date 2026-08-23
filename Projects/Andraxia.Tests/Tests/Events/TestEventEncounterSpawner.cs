@@ -13,27 +13,31 @@ internal sealed class TestEventEncounterSpawner(uint firstSerial = 1) : IEventEn
     public HashSet<Serial> Existing { get; } = [];
     public List<Serial> Deleted { get; } = [];
     public EncounterLocation SelectedLocation { get; private set; }
+    public int RequestedEncounterSize { get; private set; }
     public List<Point3D> SpawnedPositions { get; } = [];
     public EventDefinitionId DefinitionId { get; init; } = KnownEvents.BritainDisturbance;
     public IReadOnlyList<EncounterLocation> Locations => KnownEncounterLocations.GetForDefinition(DefinitionId);
-    public int EncounterSize => BritainBrigandEncounter.Size;
-
-    public bool TrySpawn(EncounterLocation location, ICollection<Serial> spawned, out string failure)
+    public bool TrySpawn(
+        EncounterLocation location,
+        int encounterSize,
+        ICollection<Serial> spawned,
+        out string failure
+    )
     {
         SelectedLocation = location;
-        var count = SpawnSucceeds ? EncounterSize : SpawnBeforeFailure;
+        RequestedEncounterSize = encounterSize;
+        var count = SpawnSucceeds ? encounterSize : SpawnBeforeFailure;
         for (var i = 0; i < count; i++)
         {
             var serial = (Serial)_nextSerial++;
             spawned.Add(serial);
             Existing.Add(serial);
             SpawnedPositions.Add(
-                i switch
-                {
-                    0 => location.Anchor,
-                    1 => new Point3D(location.X + 3, location.Y + 2, location.Z),
-                    _ => new Point3D(location.X + 6, location.Y, location.Z)
-                }
+                new Point3D(
+                    location.X + EncounterFormation.Offsets[i].X,
+                    location.Y + EncounterFormation.Offsets[i].Y,
+                    location.Z + EncounterFormation.Offsets[i].Z
+                )
             );
         }
 
