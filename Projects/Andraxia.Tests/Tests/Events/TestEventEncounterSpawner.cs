@@ -10,6 +10,8 @@ internal sealed class TestEventEncounterSpawner(uint firstSerial = 1) : IEventEn
 
     public bool SpawnSucceeds { get; set; } = true;
     public int SpawnBeforeFailure { get; set; }
+    public int ProtectedSpawnCount { get; set; }
+    public int AlliedSpawnCount { get; set; }
     public HashSet<Serial> Existing { get; } = [];
     public List<Serial> Deleted { get; } = [];
     public EncounterLocation SelectedLocation { get; private set; }
@@ -23,6 +25,8 @@ internal sealed class TestEventEncounterSpawner(uint firstSerial = 1) : IEventEn
         int encounterSize,
         EncounterSeverity severity,
         ICollection<Serial> spawned,
+        ICollection<Serial> protectedMobiles,
+        ICollection<Serial> alliedMobiles,
         out string failure
     )
     {
@@ -42,6 +46,20 @@ internal sealed class TestEventEncounterSpawner(uint firstSerial = 1) : IEventEn
                     location.Z + EncounterFormation.Offsets[i].Z
                 )
             );
+        }
+        for (var i = 0; i < ProtectedSpawnCount && SpawnSucceeds; i++)
+        {
+            var serial = (Serial)_nextSerial++;
+            spawned.Add(serial);
+            protectedMobiles.Add(serial);
+            Existing.Add(serial);
+        }
+        for (var i = 0; i < AlliedSpawnCount && SpawnSucceeds; i++)
+        {
+            var serial = (Serial)_nextSerial++;
+            spawned.Add(serial);
+            alliedMobiles.Add(serial);
+            Existing.Add(serial);
         }
 
         failure = SpawnSucceeds ? null : "Test spawn failure";

@@ -127,12 +127,15 @@ public sealed class EventStore
         DateTime nowUtc,
         IReadOnlyCollection<Serial> ownedMobiles = null,
         EncounterLocationId? selectedLocationId = null,
-        EncounterSeverity severity = EncounterSeverity.Normal
+        EncounterSeverity severity = EncounterSeverity.Normal,
+        IReadOnlyCollection<Serial> protectedMobiles = null,
+        IReadOnlyCollection<Serial> alliedMobiles = null
     )
     {
         ValidateUtc(nowUtc, nameof(nowUtc));
         var instance = new EventInstance(
-            instanceId, _definitions[definitionId], nowUtc, ownedMobiles, selectedLocationId, severity
+            instanceId, _definitions[definitionId], nowUtc, ownedMobiles, selectedLocationId, severity,
+            protectedMobiles, alliedMobiles
         );
         _instances.Add(instanceId, instance);
         return new EventTransitionResult(true, EventTransitionFailure.None, instance, null, EventLifecycleState.Active);
@@ -156,7 +159,12 @@ public sealed class EventStore
             nowUtc,
             previous.OwnedMobiles,
             previous.SelectedLocationId,
-            previous.Severity
+            previous.Severity,
+            previous.ProtectedMobiles,
+            previous.AlliedMobiles,
+            previous.InitialHostileCount,
+            previous.InitialProtectedCount,
+            previous.InitialAlliedCount
         );
         _instances[instanceId] = current;
         PruneTerminalHistory();
@@ -174,6 +182,11 @@ public sealed class EventStore
         IReadOnlyCollection<Serial> ownedMobiles = null,
         EncounterLocationId? selectedLocationId = null,
         EncounterSeverity severity = EncounterSeverity.Normal,
+        IReadOnlyCollection<Serial> protectedMobiles = null,
+        IReadOnlyCollection<Serial> alliedMobiles = null,
+        int initialHostileCount = -1,
+        int initialProtectedCount = -1,
+        int initialAlliedCount = -1,
         bool pruneTerminalHistory = true
     )
     {
@@ -216,7 +229,12 @@ public sealed class EventStore
                 completedUtc,
                 ownedMobiles,
                 selectedLocationId,
-                severity
+                severity,
+                protectedMobiles,
+                alliedMobiles,
+                initialHostileCount,
+                initialProtectedCount,
+                initialAlliedCount
             )
         );
         if (pruneTerminalHistory)
@@ -284,7 +302,12 @@ public sealed class EventStore
             instance.CompletedUtc,
             ownedMobiles,
             instance.SelectedLocationId,
-            instance.Severity
+            instance.Severity,
+            instance.ProtectedMobiles.Where(serial => ownedMobiles.Contains(serial)).ToArray(),
+            instance.AlliedMobiles.Where(serial => ownedMobiles.Contains(serial)).ToArray(),
+            instance.InitialHostileCount,
+            instance.InitialProtectedCount,
+            instance.InitialAlliedCount
         );
         _instances[instance.Id] = updated;
         return updated;

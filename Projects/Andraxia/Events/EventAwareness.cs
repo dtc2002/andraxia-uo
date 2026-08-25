@@ -15,8 +15,10 @@ internal interface IEventAwareness
 
 internal sealed class ModernUOEventAwareness : IEventAwareness
 {
+    internal const string ConcernRumorKey = "region.britain.concern";
     private static readonly TimeSpan MaximumRumorDuration = TimeSpan.FromDays(365);
     private readonly Dictionary<EventInstanceId, List<RegisteredRumor>> _rumors = [];
+    private List<RegisteredRumor> _concernRumors = [];
     private readonly Func<IEnumerable<ITownCrierEntryList>> _entryLists;
 
     internal ModernUOEventAwareness() : this(static () =>
@@ -73,6 +75,50 @@ internal sealed class ModernUOEventAwareness : IEventAwareness
             entryList.Entries?.Contains(registration.Entry) == true &&
             !registration.Entry.Expired));
     }
+
+    internal void SyncConcern(RegionalConcern concern)
+    {
+        RemoveConcernRumor();
+        if (concern == RegionalConcern.None)
+        {
+            return;
+        }
+
+        var text = ConcernRumorText(concern);
+        foreach (var entryList in _entryLists())
+        {
+            _concernRumors.Add(new RegisteredRumor(entryList, entryList.AddEntry([text], MaximumRumorDuration)));
+        }
+    }
+
+    internal bool IsConcernRumorRegistered()
+    {
+        var entryLists = _entryLists().ToArray();
+        return entryLists.Length != 0 && entryLists.All(entryList => _concernRumors.Any(registration =>
+            registration.EntryList == entryList &&
+            entryList.Entries?.Contains(registration.Entry) == true &&
+            !registration.Entry.Expired));
+    }
+
+    private void RemoveConcernRumor()
+    {
+        foreach (var registration in _concernRumors)
+        {
+            registration.EntryList.RemoveEntry(registration.Entry);
+        }
+
+        _concernRumors = [];
+    }
+
+    private static string ConcernRumorText(RegionalConcern concern) => concern switch
+    {
+        RegionalConcern.Banditry => "Travelers say organized brigands remain a problem around Britain.",
+        RegionalConcern.Undead => "Rumors of restless dead continue to trouble the lands around Britain.",
+        RegionalConcern.Raiders => "Travelers say raiding parties remain active beyond Britain's walls.",
+        RegionalConcern.Beasts => "Hunters warn that dangerous beasts remain a concern in the countryside.",
+        RegionalConcern.TradeRoutes => "Merchants remain uneasy about the roads surrounding Britain.",
+        _ => throw new ArgumentOutOfRangeException(nameof(concern))
+    };
 
     private sealed record RegisteredRumor(ITownCrierEntryList EntryList, TownCrierEntry Entry);
 }

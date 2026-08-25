@@ -32,7 +32,7 @@ public sealed class EventAwarenessTests : IDisposable
                 KnownEncounterLocations.GetForDefinition(definition.Id)),
             static location => Assert.False(string.IsNullOrWhiteSpace(location.RumorText))
         );
-        Assert.Equal(8, AndraxiaEventPersistence.CurrentVersion);
+        Assert.Equal(11, AndraxiaEventPersistence.CurrentVersion);
     }
 
     [Theory]
@@ -97,6 +97,50 @@ public sealed class EventAwarenessTests : IDisposable
         {
             awareness.RemoveRumor(instanceId);
         }
+    }
+
+    [Fact]
+    public void RegionalConcernRumorUsesIndependentStableRegistration()
+    {
+        var crier = new TestTownCrierEntryList();
+        var awareness = new ModernUOEventAwareness(() => [crier]);
+        var instanceId = EventInstanceId.New();
+
+        awareness.RegisterRumor(instanceId, "An active event rumor.");
+        awareness.SyncConcern(RegionalConcern.Raiders);
+
+        Assert.Equal("region.britain.concern", ModernUOEventAwareness.ConcernRumorKey);
+        Assert.True(awareness.IsRumorRegistered(instanceId));
+        Assert.True(awareness.IsConcernRumorRegistered());
+        Assert.Equal(2, crier.Entries.Count);
+
+        awareness.RemoveRumor(instanceId);
+
+        Assert.False(awareness.IsRumorRegistered(instanceId));
+        Assert.True(awareness.IsConcernRumorRegistered());
+        Assert.Single(crier.Entries);
+
+        awareness.SyncConcern(RegionalConcern.None);
+
+        Assert.False(awareness.IsConcernRumorRegistered());
+        Assert.Empty(crier.Entries);
+    }
+
+    [Fact]
+    public void ConcernRumorRestorationIsIdempotentAndDoesNotBroadcast()
+    {
+        var crier = new TestTownCrierEntryList();
+        var awareness = new ModernUOEventAwareness(() => [crier]);
+
+        awareness.SyncConcern(RegionalConcern.Undead);
+        awareness.SyncConcern(RegionalConcern.Undead);
+
+        var entry = Assert.Single(crier.Entries);
+        Assert.Equal(
+            new[] { "Rumors of restless dead continue to trouble the lands around Britain." },
+            entry.Lines
+        );
+        Assert.True(awareness.IsConcernRumorRegistered());
     }
 
     [Fact]

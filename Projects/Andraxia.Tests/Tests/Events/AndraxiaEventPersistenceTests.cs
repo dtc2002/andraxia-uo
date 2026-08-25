@@ -210,6 +210,80 @@ public class AndraxiaEventPersistenceTests
     }
 
     [Fact]
+    public void VersionElevenRoundTripsAllEntityRoles()
+    {
+        using var source = new TestContext();
+        using var loaded = new TestContext();
+        var hostile = (Serial)41u;
+        var protectedTarget = (Serial)42u;
+        var ally = (Serial)43u;
+        source.Events.TriggerValidated(
+            KnownEvents.BritainCaravanAmbush, FirstId, StartUtc,
+            [hostile, protectedTarget, ally], KnownEncounterLocations.BritainCaravanRoadNorth,
+            EncounterSeverity.Elevated, [protectedTarget], [ally]
+        );
+        var writer = new BufferWriter(new byte[2048], true);
+        source.Persistence.Serialize(writer);
+
+        loaded.Persistence.Deserialize(new BufferReader(writer.Buffer));
+
+        var instance = Assert.Single(loaded.Events.EnumerateInstances());
+        Assert.Equal([protectedTarget], instance.ProtectedMobiles);
+        Assert.Equal([ally], instance.AlliedMobiles);
+        Assert.Equal([hostile], instance.HostileMobiles);
+        Assert.Equal(1, instance.InitialHostileCount);
+        Assert.Equal(1, instance.InitialProtectedCount);
+        Assert.Equal(1, instance.InitialAlliedCount);
+    }
+
+    [Fact]
+    public void VersionTenMigratesWithNoAlliedEntities()
+    {
+        using var context = new TestContext();
+        var hostile = (Serial)41u;
+        var protectedTarget = (Serial)42u;
+        var reader = CreateReader(writer =>
+        {
+            WriteHeader(writer, 10, 1);
+            WriteVersionZeroEntry(
+                writer, FirstId.ToString(), KnownEvents.BritainCaravanAmbush.Value,
+                KnownEvents.Britain.Value, "active"
+            );
+            writer.Write(StartUtc);
+            writer.Write(StartUtc.AddMinutes(5));
+            writer.Write(false);
+            writer.WriteEncodedInt(2);
+            writer.Write(hostile);
+            writer.Write(protectedTarget);
+            writer.Write(true);
+            writer.Write(KnownEncounterLocations.BritainCaravanRoadNorth.Value);
+            writer.Write(false);
+            writer.WriteEncodedInt(0);
+            writer.WriteEncodedInt(0);
+            writer.Write("none");
+            writer.Write(false);
+            writer.Write("normal");
+            writer.WriteEncodedInt(1);
+            writer.Write(protectedTarget);
+            writer.Write(false);
+            writer.Write(false);
+            writer.Write(AndraxiaAutoEventGenerator.DefaultRandomState);
+            writer.Write(false);
+            writer.WriteEncodedInt(0);
+        });
+
+        context.Persistence.Deserialize(reader);
+
+        var instance = Assert.Single(context.Events.EnumerateInstances());
+        Assert.Equal([protectedTarget], instance.ProtectedMobiles);
+        Assert.Empty(instance.AlliedMobiles);
+        Assert.Equal([hostile], instance.HostileMobiles);
+        Assert.Equal(1, instance.InitialHostileCount);
+        Assert.Equal(1, instance.InitialProtectedCount);
+        Assert.Equal(0, instance.InitialAlliedCount);
+    }
+
+    [Fact]
     public void VersionOneActiveMigratesWithNoOwnedMobiles()
     {
         using var context = new TestContext();

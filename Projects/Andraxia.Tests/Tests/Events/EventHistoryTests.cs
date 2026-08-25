@@ -127,6 +127,11 @@ public sealed class EventHistoryTests : IDisposable
         [],
         KnownEncounterLocations.BritainRoadNorth,
         EncounterSeverity.Normal,
+        [],
+        [],
+        -1,
+        -1,
+        -1,
         prune
     );
 

@@ -29,6 +29,7 @@ internal readonly record struct AutoEventEvaluationResult(
 );
 
 internal enum AutoEventEligibility { Disabled, NoPlayers, RegionNotNormal, ActiveTargetEvent, Eligible }
+internal enum AutoEventSelectionReason { None, InitialSelection, RepeatSuppressed, OnlyEligibleDefinition }
 
 internal sealed class AndraxiaAutoEventScheduler(Action<DateTime> evaluate)
 {
@@ -68,13 +69,16 @@ internal sealed class AndraxiaAutoEventGenerator
     private readonly IAutoEventRandom _random;
     private readonly AndraxiaAutoEventScheduler _scheduler;
     private readonly RegionalPressureStore _pressure;
+    private readonly RegionalConcernStore _concern;
+    private readonly System.Collections.Generic.Dictionary<EventDefinitionId, EncounterLocationId> _recentLocations = [];
 
     internal AndraxiaAutoEventGenerator(
         EventStore events,
         WorldStateStore worldStates,
         AndraxiaEventService eventService,
         IAutoEventRandom random = null,
-        RegionalPressureStore pressure = null
+        RegionalPressureStore pressure = null,
+        RegionalConcernStore concern = null
     )
     {
         _events = events ?? throw new ArgumentNullException(nameof(events));
@@ -82,6 +86,7 @@ internal sealed class AndraxiaAutoEventGenerator
         _eventService = eventService ?? throw new ArgumentNullException(nameof(eventService));
         _random = random ?? new AutoEventRandom(DefaultRandomState);
         _pressure = pressure ?? eventService.Pressure;
+        _concern = concern ?? AndraxiaAssembly.Concern;
         _scheduler = new AndraxiaAutoEventScheduler(nowUtc => Evaluate(nowUtc));
     }
 
@@ -91,6 +96,13 @@ internal sealed class AndraxiaAutoEventGenerator
     internal bool TimerRunning => _scheduler.TimerRunning;
     internal int OrdinaryPlayerCount => _eventService.OrdinaryPlayerCount;
     internal AutoEventEligibility Eligibility => GetEligibility();
+    internal EventDefinitionId? LastAutomaticDefinitionId { get; private set; }
+    internal AutoEventSelectionReason LastSelectionReason { get; private set; }
+
+    internal EncounterLocationId? GetLastAutomaticLocation(EventDefinitionId definitionId) =>
+        _recentLocations.TryGetValue(definitionId, out var locationId) ? locationId : null;
+    internal System.Collections.Generic.IReadOnlyDictionary<EventDefinitionId, EncounterLocationId> RecentLocations =>
+        _recentLocations;
 
     internal bool Enable(DateTime nowUtc)
     {
@@ -137,18 +149,60 @@ internal sealed class AndraxiaAutoEventGenerator
         AndraxiaEventResult? triggerResult = null;
         if (probabilityPassed)
         {
-            var selectedIndex = eligibleDefinitions.Length == 1
-                ? 0
-                : (int)Math.Floor(_random.NextDouble() * eligibleDefinitions.Length);
-            selectedDefinitionId = eligibleDefinitions[selectedIndex];
-            triggerResult = _eventService.Trigger(selectedDefinitionId.Value, EventInstanceId.New(), nowUtc);
+            var preferred = eligibleDefinitions.Length > 1 && LastAutomaticDefinitionId is { } previous
+                ? eligibleDefinitions.Where(definitionId => definitionId != previous).ToArray()
+                : eligibleDefinitions;
+            if (preferred.Length == 0)
+            {
+                preferred = eligibleDefinitions;
+            }
+            LastSelectionReason = eligibleDefinitions.Length == 1
+                ? AutoEventSelectionReason.OnlyEligibleDefinition
+                : preferred.Length < eligibleDefinitions.Length
+                    ? AutoEventSelectionReason.RepeatSuppressed
+                    : AutoEventSelectionReason.InitialSelection;
+            var concernDefinition = _concern == null ? null : RegionalConcernMapping.Definition(_concern.Britain);
+            if (preferred.Length > 1 && concernDefinition is { } biased && preferred.Contains(biased))
+            {
+                if (_random.NextDouble() < 0.5) selectedDefinitionId = biased;
+                else preferred = preferred.Where(id => id != biased).ToArray();
+            }
+            if (!selectedDefinitionId.HasValue)
+            {
+                var selectedIndex = preferred.Length == 1 ? 0 : (int)Math.Floor(_random.NextDouble() * preferred.Length);
+                selectedDefinitionId = preferred[selectedIndex];
+            }
+            triggerResult = _eventService.TriggerAutomatic(
+                selectedDefinitionId.Value,
+                EventInstanceId.New(),
+                nowUtc,
+                GetLastAutomaticLocation(selectedDefinitionId.Value)
+            );
+            if (triggerResult.Value.Succeeded)
+            {
+                LastAutomaticDefinitionId = selectedDefinitionId;
+                if (triggerResult.Value.EventResult.Instance.SelectedLocationId is { } locationId)
+                {
+                    _recentLocations[selectedDefinitionId.Value] = locationId;
+                }
+            }
+        }
+        else
+        {
+            LastSelectionReason = AutoEventSelectionReason.None;
         }
 
         ScheduleNext(nowUtc);
         return new AutoEventEvaluationResult(true, eligible, probabilityPassed, selectedDefinitionId, triggerResult);
     }
 
-    internal void Restore(bool enabled, DateTime? nextEvaluationUtc, ulong randomState)
+    internal void Restore(
+        bool enabled,
+        DateTime? nextEvaluationUtc,
+        ulong randomState,
+        EventDefinitionId? lastAutomaticDefinitionId = null,
+        System.Collections.Generic.IReadOnlyDictionary<EventDefinitionId, EncounterLocationId> recentLocations = null
+    )
     {
         if (nextEvaluationUtc is { Kind: not DateTimeKind.Utc })
         {
@@ -159,6 +213,15 @@ internal sealed class AndraxiaAutoEventGenerator
         Enabled = enabled;
         NextEvaluationUtc = enabled ? nextEvaluationUtc : null;
         _random.State = randomState;
+        LastAutomaticDefinitionId = lastAutomaticDefinitionId;
+        _recentLocations.Clear();
+        if (recentLocations != null)
+        {
+            foreach (var entry in recentLocations)
+            {
+                _recentLocations[entry.Key] = entry.Value;
+            }
+        }
     }
 
     internal void Recover(DateTime nowUtc)
@@ -193,6 +256,9 @@ internal sealed class AndraxiaAutoEventGenerator
         Enabled = false;
         NextEvaluationUtc = null;
         _random.State = DefaultRandomState;
+        LastAutomaticDefinitionId = null;
+        LastSelectionReason = AutoEventSelectionReason.None;
+        _recentLocations.Clear();
     }
 
     internal void StopTimer() => _scheduler.Cancel();

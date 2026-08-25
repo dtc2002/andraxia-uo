@@ -20,8 +20,8 @@ public sealed class UndeadEncounterTests : IDisposable
     [Fact]
     public void DefinitionsAreUniqueRegisteredAndTargetBritain()
     {
-        Assert.Equal(2, KnownEvents.Definitions.Count);
-        Assert.Equal(2, KnownEvents.Definitions.Select(static definition => definition.Id).Distinct().Count());
+        Assert.Equal(5, KnownEvents.Definitions.Count);
+        Assert.Equal(5, KnownEvents.Definitions.Select(static definition => definition.Id).Distinct().Count());
         Assert.Contains(KnownEvents.Definitions, static definition => definition.Id == KnownEvents.BritainDisturbance);
         Assert.Contains(
             KnownEvents.Definitions,

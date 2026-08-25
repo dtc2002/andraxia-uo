@@ -9,7 +9,8 @@ internal interface IEncounterLocationSelector
     EncounterLocation Select(
         EventDefinitionId definitionId,
         EventInstanceId instanceId,
-        IReadOnlyList<EncounterLocation> candidates
+        IReadOnlyList<EncounterLocation> candidates,
+        EncounterLocationId? excludedLocationId = null
     );
 }
 
@@ -18,7 +19,8 @@ internal sealed class DeterministicEncounterLocationSelector : IEncounterLocatio
     public EncounterLocation Select(
         EventDefinitionId definitionId,
         EventInstanceId instanceId,
-        IReadOnlyList<EncounterLocation> candidates
+        IReadOnlyList<EncounterLocation> candidates,
+        EncounterLocationId? excludedLocationId = null
     )
     {
         ArgumentNullException.ThrowIfNull(candidates);
@@ -27,7 +29,14 @@ internal sealed class DeterministicEncounterLocationSelector : IEncounterLocatio
             throw new ArgumentException("At least one encounter location is required.", nameof(candidates));
         }
 
-        var ordered = candidates.OrderBy(static location => location.Id.Value, StringComparer.Ordinal).ToArray();
+        var ordered = candidates
+            .Where(location => candidates.Count == 1 || location.Id != excludedLocationId)
+            .OrderBy(static location => location.Id.Value, StringComparer.Ordinal)
+            .ToArray();
+        if (ordered.Length == 0)
+        {
+            ordered = candidates.OrderBy(static location => location.Id.Value, StringComparer.Ordinal).ToArray();
+        }
         var input = $"{definitionId.Value}:{instanceId.Value:N}";
         var hash = 2166136261u;
         foreach (var character in input)

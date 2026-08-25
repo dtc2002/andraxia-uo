@@ -39,7 +39,10 @@ public sealed class AndraxiaEventService
         this(
             events,
             worldStates,
-            [new BritainBrigandEncounter(), new BritainUndeadEncounter()],
+            [
+                new BritainBrigandEncounter(), new BritainUndeadEncounter(), new BritainOrcEncounter(),
+                new BritainBeastEncounter(), new BritainCaravanEncounter()
+            ],
             new DeterministicEncounterLocationSelector(),
             OnlinePlayerCounter.CountOrdinaryPlayers,
             new ModernUOEventAwareness(),
@@ -79,7 +82,8 @@ public sealed class AndraxiaEventService
         IEncounterLocationSelector locationSelector,
         Func<int> ordinaryPlayerCount = null,
         IEventAwareness awareness = null,
-        RegionalPressureStore pressure = null
+        RegionalPressureStore pressure = null,
+        RegionalConcernStore concern = null
     )
     {
         _events = events;
@@ -95,9 +99,15 @@ public sealed class AndraxiaEventService
         _locationSelector = locationSelector ?? throw new ArgumentNullException(nameof(locationSelector));
         _ordinaryPlayerCount = ordinaryPlayerCount ?? (static () => 1);
         _awareness = awareness ?? NullEventAwareness.Instance;
+        concern ??= AndraxiaAssembly.Concern;
+        if (concern != null && _awareness is ModernUOEventAwareness modernAwareness)
+        {
+            concern.Changed += () => modernAwareness.SyncConcern(concern.Britain);
+            modernAwareness.SyncConcern(concern.Britain);
+        }
         _participation = new EventParticipationTracker(events);
         Pressure = pressure ?? new RegionalPressureStore();
-        _consequences = new EventOutcomeConsequences(Pressure);
+        _consequences = new EventOutcomeConsequences(Pressure, events, concern);
         _scheduler = new AndraxiaEventExpirationScheduler(events, Advance);
     }
 
@@ -113,11 +123,19 @@ public sealed class AndraxiaEventService
         DateTime nowUtc
     ) => Trigger(definitionId, instanceId, nowUtc, null);
 
+    internal AndraxiaEventResult TriggerAutomatic(
+        EventDefinitionId definitionId,
+        EventInstanceId instanceId,
+        DateTime nowUtc,
+        EncounterLocationId? excludedLocationId
+    ) => Trigger(definitionId, instanceId, nowUtc, null, excludedLocationId);
+
     internal AndraxiaEventResult Trigger(
         EventDefinitionId definitionId,
         EventInstanceId instanceId,
         DateTime nowUtc,
-        EncounterLocationId? forcedLocationId
+        EncounterLocationId? forcedLocationId,
+        EncounterLocationId? excludedLocationId = null
     )
     {
         ValidateUtc(nowUtc);
@@ -156,7 +174,8 @@ public sealed class AndraxiaEventService
             location = _locationSelector.Select(
                 definitionId,
                 instanceId,
-                encounter.Locations
+                encounter.Locations,
+                excludedLocationId
             );
         }
 
@@ -167,7 +186,11 @@ public sealed class AndraxiaEventService
         }
 
         var spawned = new List<Serial>(encounterSize);
-        if (!encounter.TrySpawn(location, encounterSize, severity, spawned, out var spawnFailure))
+        var protectedMobiles = new List<Serial>(2);
+        var alliedMobiles = new List<Serial>(2);
+        if (!encounter.TrySpawn(
+                location, encounterSize, severity, spawned, protectedMobiles, alliedMobiles, out var spawnFailure
+            ))
         {
             foreach (var serial in spawned)
             {
@@ -192,7 +215,9 @@ public sealed class AndraxiaEventService
         }
 
         var result = new AndraxiaEventResult(
-            _events.TriggerValidated(definitionId, instanceId, nowUtc, spawned, location.Id, severity),
+            _events.TriggerValidated(
+                definitionId, instanceId, nowUtc, spawned, location.Id, severity, protectedMobiles, alliedMobiles
+            ),
             worldStateResult
         );
         _scheduler.Rearm(nowUtc);
@@ -257,10 +282,27 @@ public sealed class AndraxiaEventService
     internal void HandleOwnedMobileRemoved(Serial serial, DateTime nowUtc)
     {
         ValidateUtc(nowUtc);
-        if (!_events.TryRemoveOwnedMobile(serial, out var instance) || instance.OwnedMobiles.Count != 0)
+        var existing = _events.EnumerateInstances().FirstOrDefault(instance =>
+            instance.State == EventLifecycleState.Active && instance.OwnedMobiles.Contains(serial));
+        if (existing == null)
         {
             return;
         }
+
+        var protectedTarget = existing.ProtectedMobiles.Contains(serial);
+        var alliedTarget = existing.AlliedMobiles.Contains(serial);
+        if (!_events.TryRemoveOwnedMobile(serial, out var instance)) return;
+
+        if (protectedTarget && !instance.ProtectedMobiles.Any())
+        {
+            Transition(instance.Id, EventLifecycleState.Failed, nowUtc, true, true, false,
+                EventOutcomeSource.AutomaticFailure);
+            return;
+        }
+
+        if (alliedTarget || protectedTarget) return;
+
+        if (instance.HostileMobiles.Any()) return;
 
         var result = Transition(
             instance.Id, EventLifecycleState.Succeeded, nowUtc, true, true,
@@ -302,7 +344,12 @@ public sealed class AndraxiaEventService
                 ? instance
                 : _events.ReplaceOwnedMobiles(instance, remaining);
 
-            if (restored.OwnedMobiles.Count == 0)
+            if (instance.ProtectedMobiles.Any() && !restored.ProtectedMobiles.Any())
+            {
+                Transition(restored.Id, EventLifecycleState.Failed, nowUtc, true, false, false,
+                    EventOutcomeSource.AutomaticFailure);
+            }
+            else if (!restored.HostileMobiles.Any())
             {
                 var result = Transition(
                     restored.Id,
@@ -409,6 +456,10 @@ public sealed class AndraxiaEventService
     }
 
     internal bool IsRumorRegistered(EventInstanceId instanceId) => _awareness.IsRumorRegistered(instanceId);
+    internal bool IsConcernRumorRegistered() =>
+        _awareness is ModernUOEventAwareness awareness && awareness.IsConcernRumorRegistered();
+    internal bool ExpirationTimerRunning => _scheduler.TimerRunning;
+    internal DateTime? NextExpirationUtc => _scheduler.NextExpirationUtc;
     internal EventParticipationTracker Participation => _participation;
     internal RegionalPressureStore Pressure { get; }
     internal int OrdinaryPlayerCount => _ordinaryPlayerCount();

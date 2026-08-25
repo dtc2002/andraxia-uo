@@ -28,9 +28,7 @@ internal sealed class EventParticipationTracker
 
     internal void Capture(Mobile creature)
     {
-        var instance = _events.EnumerateInstances().FirstOrDefault(candidate =>
-            candidate.State == EventLifecycleState.Active && candidate.OwnedMobiles.Contains(creature.Serial));
-        if (instance == null)
+        if (!TryGetHostileEvent(creature.Serial, out var instance))
         {
             return;
         }
@@ -48,6 +46,22 @@ internal sealed class EventParticipationTracker
                 damager is { Player: true, AccessLevel: AccessLevel.Player }
             );
         }
+    }
+
+    internal bool RecordOwnedMobileContribution(
+        Serial ownedMobile,
+        Serial participant,
+        int damage,
+        bool ordinaryPlayer = true
+    )
+    {
+        if (!TryGetHostileEvent(ownedMobile, out var instance))
+        {
+            return false;
+        }
+
+        RecordContribution(instance.Id, participant, damage, ordinaryPlayer);
+        return true;
     }
 
     internal IReadOnlyList<EventParticipant> Participants(EventInstanceId id) =>
@@ -99,18 +113,13 @@ internal sealed class EventParticipationTracker
 
     internal void RecordContribution(EventInstanceId id, Serial serial, int damage, bool ordinaryPlayer = true)
     {
-        if (damage <= 0)
+        if (damage <= 0 || !ordinaryPlayer)
         {
             return;
         }
 
         var state = GetOrCreate(id);
         state.TotalDamage += damage;
-        if (!ordinaryPlayer)
-        {
-            return;
-        }
-
         state.Participants.TryGetValue(serial, out var participant);
         state.Participants[serial] = new EventParticipant(
             serial,
@@ -146,6 +155,13 @@ internal sealed class EventParticipationTracker
             _states[id] = state = new ParticipationState();
         }
         return state;
+    }
+
+    private bool TryGetHostileEvent(Serial serial, out EventInstance instance)
+    {
+        instance = _events.EnumerateInstances().FirstOrDefault(candidate =>
+            candidate.State == EventLifecycleState.Active && candidate.HostileMobiles.Contains(serial));
+        return instance != null;
     }
 
     private static bool DeliverGold(Serial serial, int amount)

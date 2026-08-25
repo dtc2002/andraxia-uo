@@ -21,6 +21,8 @@ internal sealed class BritainUndeadEncounter : IEventEncounterSpawner
         int encounterSize,
         EncounterSeverity severity,
         ICollection<Serial> spawned,
+        ICollection<Serial> protectedMobiles,
+        ICollection<Serial> alliedMobiles,
         out string failure
     )
     {

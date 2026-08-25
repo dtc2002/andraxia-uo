@@ -15,6 +15,7 @@ public static class AndraxiaAssembly
     internal static AndraxiaAutoEventGenerator AutoEvents { get; private set; }
     internal static RegionalPressureStore Pressure { get; private set; }
     internal static RegionalPressureStabilizer PressureStabilizer { get; private set; }
+    internal static RegionalConcernStore Concern { get; private set; }
 
     public static void Configure()
     {
@@ -27,14 +28,21 @@ public static class AndraxiaAssembly
         _worldStatePersistence = new AndraxiaWorldStatePersistence(WorldStates);
         Events = new EventStore(KnownEvents.Definitions);
         Pressure = new RegionalPressureStore();
-        PressureStabilizer = new RegionalPressureStabilizer(Pressure);
-        _pressurePersistence = new RegionalPressurePersistence(Pressure, PressureStabilizer);
+        Concern = new RegionalConcernStore();
+        PressureStabilizer = new RegionalPressureStabilizer(Pressure, Concern);
+        _pressurePersistence = new RegionalPressurePersistence(Pressure, PressureStabilizer, Concern);
         EventService = new AndraxiaEventService(Events, WorldStates, pressure: Pressure);
-        AutoEvents = new AndraxiaAutoEventGenerator(Events, WorldStates, EventService, pressure: Pressure);
+        AutoEvents = new AndraxiaAutoEventGenerator(Events, WorldStates, EventService, pressure: Pressure, concern: Concern);
         EventEncounterLifecycle.Configure(EventService);
         _eventPersistence = new AndraxiaEventPersistence(Events, WorldStates, EventService, AutoEvents);
         WorldStateCommands.Configure(WorldStates);
         EventCommands.Configure(EventService, Events, AutoEvents);
         PressureCommands.Configure(Pressure, PressureStabilizer);
+        ConcernCommands.Configure(Concern);
+        AndraxiaAdminConsole.Configure(
+            WorldStates, Events, EventService, AutoEvents, Pressure, PressureStabilizer, Concern
+        );
     }
+
+    public static void Initialize() => AndraxiaGuardSystem.Install();
 }

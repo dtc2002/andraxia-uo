@@ -53,7 +53,14 @@ internal static class EncounterCompositionPolicy
         type == typeof(AndraxiaEncounterSkeleton) ? "Skeleton" :
         type == typeof(AndraxiaEncounterZombie) ? "Zombie" :
         type == typeof(AndraxiaEncounterGhoul) ? "Ghoul" :
-        type == typeof(AndraxiaEncounterWraith) ? "Wraith" : type.Name;
+        type == typeof(AndraxiaEncounterWraith) ? "Wraith" :
+        type == typeof(AndraxiaEncounterOrc) ? "Orc" :
+        type == typeof(AndraxiaEncounterOrcishLord) ? "Orcish Lord" :
+        type == typeof(AndraxiaEncounterOrcishMage) ? "Orcish Mage" :
+        type == typeof(AndraxiaEncounterGreyWolf) ? "Grey Wolf" :
+        type == typeof(AndraxiaEncounterDireWolf) ? "Dire Wolf" :
+        type == typeof(AndraxiaEncounterGrizzlyBear) ? "Grizzly Bear" :
+        type == typeof(AndraxiaCaravanMerchant) ? "Merchant" : type.Name;
 
     internal static IReadOnlyList<Type> Brigands(int size, EncounterSeverity severity)
     {
@@ -91,6 +98,22 @@ internal static class EncounterCompositionPolicy
         {
             ReplaceTail(types, size >= 5 ? 2 : 1, typeof(AndraxiaEncounterWraith));
         }
+        return types;
+    }
+
+    internal static IReadOnlyList<Type> Orcs(int size, EncounterSeverity severity)
+    {
+        var types = Filled(size, typeof(AndraxiaEncounterOrc));
+        ReplaceTail(types, severity == EncounterSeverity.Elevated ? 1 : severity == EncounterSeverity.Severe ? Math.Min(2, size) : 0,
+            severity == EncounterSeverity.Severe ? typeof(AndraxiaEncounterOrcishMage) : typeof(AndraxiaEncounterOrcishLord));
+        return types;
+    }
+
+    internal static IReadOnlyList<Type> Beasts(int size, EncounterSeverity severity)
+    {
+        var types = Filled(size, typeof(AndraxiaEncounterGreyWolf));
+        ReplaceTail(types, severity == EncounterSeverity.Elevated ? 1 : severity == EncounterSeverity.Severe ? Math.Min(2, size) : 0,
+            severity == EncounterSeverity.Severe ? typeof(AndraxiaEncounterGrizzlyBear) : typeof(AndraxiaEncounterDireWolf));
         return types;
     }
 

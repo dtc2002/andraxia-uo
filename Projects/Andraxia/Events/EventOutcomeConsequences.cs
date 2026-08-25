@@ -5,7 +5,11 @@ namespace Server.Andraxia;
 internal enum EventOutcomeSource { None, CombatSuccess, AutomaticFailure, Administrative }
 internal readonly record struct EventConsequence(EventOutcomeSource Source, bool Applied);
 
-internal sealed class EventOutcomeConsequences(RegionalPressureStore pressure)
+internal sealed class EventOutcomeConsequences(
+    RegionalPressureStore pressure,
+    EventStore events,
+    RegionalConcernStore concern = null
+)
 {
     private readonly Dictionary<EventInstanceId, EventConsequence> _states = [];
 
@@ -22,6 +26,13 @@ internal sealed class EventOutcomeConsequences(RegionalPressureStore pressure)
         else if (source == EventOutcomeSource.AutomaticFailure)
         {
             pressure.AdjustBritain(10, "Event expired");
+        }
+        if (concern != null && events.TryGetInstance(id, out var instance) &&
+            events.TryGetDefinition(instance.DefinitionId, out var definition))
+        {
+            var mapped = RegionalConcernMapping.FromCategory(definition.Category);
+            if (source == EventOutcomeSource.AutomaticFailure) concern.Establish(mapped, $"{definition.DisplayName} failed");
+            else if (source == EventOutcomeSource.CombatSuccess && concern.Britain == mapped) concern.Clear($"{definition.DisplayName} cleared");
         }
         _states[id] = new EventConsequence(source, true);
     }

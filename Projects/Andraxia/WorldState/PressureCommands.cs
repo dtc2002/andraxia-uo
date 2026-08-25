@@ -24,6 +24,7 @@ internal static class PressureCommands
             e.Mobile.SendMessage($"Britain pressure: {_store.Britain}/100");
             e.Mobile.SendMessage($"Stability: {classification}");
             e.Mobile.SendMessage($"Auto-event probability: {RegionalPressureStore.TriggerProbability(_store.Britain):P0}");
+            e.Mobile.SendMessage($"Regional concern: {AndraxiaAssembly.Concern?.Britain ?? RegionalConcern.None}");
             e.Mobile.SendMessage($"Next stabilization: {_stabilizer.NextRecoveryUtc:O}");
             var playerCount = OnlinePlayerCounter.CountOrdinaryPlayers();
             e.Mobile.SendMessage($"Ordinary players online: {playerCount}");

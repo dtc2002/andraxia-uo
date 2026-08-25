@@ -239,7 +239,8 @@ public sealed class EventEncounterTests : IDisposable
         public EncounterLocation Select(
             EventDefinitionId definitionId,
             EventInstanceId instanceId,
-            IReadOnlyList<EncounterLocation> candidates
+            IReadOnlyList<EncounterLocation> candidates,
+            EncounterLocationId? excludedLocationId = null
         ) => _locations.Dequeue();
     }
 
@@ -250,7 +251,8 @@ public sealed class EventEncounterTests : IDisposable
         public EncounterLocation Select(
             EventDefinitionId definitionId,
             EventInstanceId instanceId,
-            IReadOnlyList<EncounterLocation> candidates
+            IReadOnlyList<EncounterLocation> candidates,
+            EncounterLocationId? excludedLocationId = null
         )
         {
             CallCount++;

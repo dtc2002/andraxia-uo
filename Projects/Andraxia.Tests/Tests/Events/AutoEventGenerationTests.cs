@@ -281,6 +281,82 @@ public sealed class AutoEventGenerationTests
         Assert.Equal(new EventDefinitionId(expectedDefinition), Assert.Single(context.Events.EnumerateInstances()).DefinitionId);
     }
 
+    [Theory]
+    [InlineData("event.test.britain-disturbance", "event.britain.undead-disturbance")]
+    [InlineData("event.britain.undead-disturbance", "event.test.britain-disturbance")]
+    public void PreviousAutomaticDefinitionIsExcludedWithoutSelectionDraw(string previous, string expected)
+    {
+        using var context = new DualContext(0.0, 0.25);
+        context.Generator.Restore(
+            true, null, 0, new EventDefinitionId(previous),
+            new Dictionary<EventDefinitionId, EncounterLocationId>()
+        );
+
+        var result = context.Generator.Evaluate(StartUtc);
+
+        Assert.True(result.TriggerResult?.Succeeded);
+        Assert.Equal(new EventDefinitionId(expected), result.SelectedDefinitionId);
+        Assert.Equal(AutoEventSelectionReason.RepeatSuppressed, context.Generator.LastSelectionReason);
+        Assert.Equal(2, context.Random.CallCount); // probability and next delay only
+        Assert.Equal(result.SelectedDefinitionId, context.Generator.LastAutomaticDefinitionId);
+        Assert.NotNull(context.Generator.GetLastAutomaticLocation(result.SelectedDefinitionId.Value));
+    }
+
+    [Fact]
+    public void FailedAutomaticTriggerDoesNotUpdateRecentMemory()
+    {
+        using var context = new TestContext(0.0, 0.0, 0.25);
+        context.Encounter.SpawnSucceeds = false;
+        context.Generator.Enable(StartUtc);
+
+        var result = context.Generator.Evaluate(StartUtc.AddMinutes(5));
+
+        Assert.False(result.TriggerResult?.Succeeded);
+        Assert.Null(context.Generator.LastAutomaticDefinitionId);
+        Assert.Null(context.Generator.GetLastAutomaticLocation(KnownEvents.BritainDisturbance));
+    }
+
+    [Fact]
+    public void OnlyEligibleDefinitionMayRepeat()
+    {
+        using var context = new TestContext(0.0, 0.25);
+        context.Generator.Restore(
+            true, null, 0, KnownEvents.BritainDisturbance,
+            new Dictionary<EventDefinitionId, EncounterLocationId>
+            {
+                [KnownEvents.BritainDisturbance] = KnownEncounterLocations.BritainRoadNorth
+            }
+        );
+
+        var result = context.Generator.Evaluate(StartUtc);
+
+        Assert.True(result.TriggerResult?.Succeeded);
+        Assert.Equal(KnownEvents.BritainDisturbance, result.SelectedDefinitionId);
+        Assert.Equal(AutoEventSelectionReason.OnlyEligibleDefinition, context.Generator.LastSelectionReason);
+        Assert.Equal(2, context.Random.CallCount);
+        Assert.NotEqual(
+            KnownEncounterLocations.BritainRoadNorth,
+            result.TriggerResult.Value.EventResult.Instance.SelectedLocationId
+        );
+    }
+
+    [Fact]
+    public void ManualForcedTriggerDoesNotUpdateAutomaticMemory()
+    {
+        using var context = new TestContext(0.0);
+
+        var result = context.Service.Trigger(
+            KnownEvents.BritainDisturbance,
+            EventInstanceId.New(),
+            StartUtc,
+            KnownEncounterLocations.BritainRoadNorth
+        );
+
+        Assert.True(result.Succeeded);
+        Assert.Null(context.Generator.LastAutomaticDefinitionId);
+        Assert.Null(context.Generator.GetLastAutomaticLocation(KnownEvents.BritainDisturbance));
+    }
+
     [Fact]
     public void SameRandomSequenceProducesSameDefinitionSequence()
     {
@@ -411,16 +487,18 @@ public sealed class AutoEventGenerationTests
                 },
                 new DeterministicEncounterLocationSelector()
             );
+            Random = new SequenceAutoEventRandom(randomValues);
             Generator = new AndraxiaAutoEventGenerator(
                 Events,
                 states,
                 Service,
-                new SequenceAutoEventRandom(randomValues)
+                Random
             );
         }
 
         public EventStore Events { get; }
         public AndraxiaEventService Service { get; }
+        public SequenceAutoEventRandom Random { get; }
         public AndraxiaAutoEventGenerator Generator { get; }
 
         public void Dispose()

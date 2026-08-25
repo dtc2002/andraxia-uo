@@ -69,4 +69,29 @@ public sealed class EncounterLocationTests
 
         Assert.Equal(forward.Id, reversed.Id);
     }
+
+    [Fact]
+    public void PreviousLocationIsExcludedBeforeDeterministicSelection()
+    {
+        var selector = new DeterministicEncounterLocationSelector();
+        var candidates = KnownEncounterLocations.BritainDisturbance;
+        var previous = selector.Select(KnownEvents.BritainDisturbance, InstanceId, candidates);
+
+        var selected = selector.Select(KnownEvents.BritainDisturbance, InstanceId, candidates, previous.Id);
+
+        Assert.NotEqual(previous.Id, selected.Id);
+        Assert.Contains(selected, candidates);
+    }
+
+    [Fact]
+    public void SingleLocationCanRepeatWhenExcluded()
+    {
+        var selector = new DeterministicEncounterLocationSelector();
+        var only = KnownEncounterLocations.BritainDisturbance[0];
+
+        Assert.Same(
+            only,
+            selector.Select(KnownEvents.BritainDisturbance, InstanceId, [only], only.Id)
+        );
+    }
 }

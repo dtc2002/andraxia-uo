@@ -6,10 +6,11 @@ internal sealed class RegionalPressureStabilizer
 {
     internal static readonly TimeSpan Interval = TimeSpan.FromMinutes(30);
     private readonly RegionalPressureStore _pressure;
+    private readonly RegionalConcernStore _concern;
     private TimerExecutionToken _token;
 
-    internal RegionalPressureStabilizer(RegionalPressureStore pressure) =>
-        _pressure = pressure ?? throw new ArgumentNullException(nameof(pressure));
+    internal RegionalPressureStabilizer(RegionalPressureStore pressure, RegionalConcernStore concern = null)
+    { _pressure = pressure ?? throw new ArgumentNullException(nameof(pressure)); _concern = concern; }
 
     internal DateTime NextRecoveryUtc { get; private set; }
     internal bool TimerRunning => _token.Running;
@@ -38,6 +39,7 @@ internal sealed class RegionalPressureStabilizer
         {
             var elapsedIntervals = checked((long)((nowUtc - NextRecoveryUtc).Ticks / Interval.Ticks) + 1);
             MoveTowardBaseline(elapsedIntervals);
+            _concern?.Stabilize(elapsedIntervals);
             NextRecoveryUtc += TimeSpan.FromTicks(checked(elapsedIntervals * Interval.Ticks));
         }
         Arm(nowUtc);
@@ -49,6 +51,7 @@ internal sealed class RegionalPressureStabilizer
     {
         var nowUtc = Core.Now;
         MoveTowardBaseline(1);
+        _concern?.Stabilize(1);
         NextRecoveryUtc = nowUtc + Interval;
         Arm(nowUtc);
     }

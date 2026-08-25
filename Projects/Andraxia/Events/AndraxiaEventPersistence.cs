@@ -8,7 +8,7 @@ namespace Server.Andraxia;
 
 public sealed class AndraxiaEventPersistence : GenericPersistence
 {
-    internal const int CurrentVersion = 8;
+    internal const int CurrentVersion = 11;
     internal const string PersistenceName = "AndraxiaEvents";
     internal const int MaxEntryCount = 10_000;
     internal const int MaxOwnedMobileCount = 100;
@@ -94,6 +94,13 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             });
             writer.Write(consequence.Applied);
             writer.Write(EncounterSeverityPolicy.GetToken(instance.Severity));
+            writer.WriteEncodedInt(instance.ProtectedMobiles.Count);
+            foreach (var serial in instance.ProtectedMobiles) writer.Write(serial);
+            writer.WriteEncodedInt(instance.AlliedMobiles.Count);
+            foreach (var serial in instance.AlliedMobiles) writer.Write(serial);
+            writer.WriteEncodedInt(instance.InitialHostileCount);
+            writer.WriteEncodedInt(instance.InitialProtectedCount);
+            writer.WriteEncodedInt(instance.InitialAlliedCount);
         }
 
         writer.Write(_generator.Enabled);
@@ -103,6 +110,18 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             writer.Write(nextEvaluationUtc);
         }
         writer.Write(_generator.RandomState);
+        writer.Write(_generator.LastAutomaticDefinitionId.HasValue);
+        if (_generator.LastAutomaticDefinitionId is { } lastDefinitionId)
+        {
+            writer.Write(lastDefinitionId.Value);
+        }
+        var recentLocations = _generator.RecentLocations.OrderBy(static pair => pair.Key.Value, StringComparer.Ordinal).ToArray();
+        writer.WriteEncodedInt(recentLocations.Length);
+        foreach (var pair in recentLocations)
+        {
+            writer.Write(pair.Key.Value);
+            writer.Write(pair.Value.Value);
+        }
     }
 
     public override void Deserialize(string savePath, Dictionary<ulong, string> typesDb)
@@ -156,6 +175,11 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             var outcomeSource = EventOutcomeSource.None;
             var consequenceApplied = false;
             var severity = EncounterSeverity.Normal;
+            Serial[] protectedMobiles = [];
+            Serial[] alliedMobiles = [];
+            var initialHostileCount = -1;
+            var initialProtectedCount = -1;
+            var initialAlliedCount = -1;
 
             if (version >= 1)
             {
@@ -262,6 +286,30 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
             {
                 throw new InvalidDataException($"Unknown event severity token for event {instanceToken}.");
             }
+            if (version >= 10)
+            {
+                var protectedCount = reader.ReadEncodedInt();
+                if (protectedCount is < 0 or > MaxOwnedMobileCount)
+                    throw new InvalidDataException($"Invalid protected-mobile count for event {instanceToken}.");
+                protectedMobiles = new Serial[protectedCount];
+                for (var p = 0; p < protectedCount; p++) protectedMobiles[p] = reader.ReadSerial();
+            }
+            if (version >= 11)
+            {
+                var alliedCount = reader.ReadEncodedInt();
+                if (alliedCount is < 0 or > MaxOwnedMobileCount)
+                    throw new InvalidDataException($"Invalid allied-mobile count for event {instanceToken}.");
+                alliedMobiles = new Serial[alliedCount];
+                for (var a = 0; a < alliedCount; a++) alliedMobiles[a] = reader.ReadSerial();
+                initialHostileCount = reader.ReadEncodedInt();
+                if (initialHostileCount is < 0 or > MaxOwnedMobileCount)
+                    throw new InvalidDataException($"Invalid initial-hostile count for event {instanceToken}.");
+                initialProtectedCount = reader.ReadEncodedInt();
+                initialAlliedCount = reader.ReadEncodedInt();
+                if (initialProtectedCount is < 0 or > MaxOwnedMobileCount ||
+                    initialAlliedCount is < 0 or > MaxOwnedMobileCount)
+                    throw new InvalidDataException($"Invalid initial role count for event {instanceToken}.");
+            }
 
             if (!EventInstanceId.TryParse(instanceToken, out var instanceId))
             {
@@ -338,6 +386,11 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 ownedMobiles,
                 selectedLocationId,
                 severity,
+                protectedMobiles,
+                alliedMobiles,
+                initialHostileCount,
+                initialProtectedCount,
+                initialAlliedCount,
                 false
             );
 
@@ -384,7 +437,76 @@ public sealed class AndraxiaEventPersistence : GenericPersistence
                 throw new InvalidDataException("Persisted automatic-event evaluation time must be UTC.");
             }
 
-            _generator.Restore(enabled, nextEvaluationUtc, randomState);
+            EventDefinitionId? lastDefinitionId = null;
+            Dictionary<EventDefinitionId, EncounterLocationId> recentLocations = [];
+            if (version >= 9)
+            {
+                if (reader.ReadBool())
+                {
+                    var token = reader.ReadString();
+                    var candidate = new EventDefinitionId(token);
+                    if (KnownEvents.AutomaticDefinitions.Contains(candidate))
+                    {
+                        lastDefinitionId = candidate;
+                    }
+                    else
+                    {
+                        logger.Warning("Ignoring unknown recent automatic event definition {Definition}", token);
+                    }
+                }
+                if (version == 9)
+                {
+                    ReadRecentLocation(reader, KnownEvents.BritainDisturbance, recentLocations);
+                    ReadRecentLocation(reader, KnownEvents.BritainUndeadDisturbance, recentLocations);
+                }
+                else
+                {
+                    var recentCount = reader.ReadEncodedInt();
+                    if (recentCount is < 0 or > 100) throw new InvalidDataException("Invalid recent-location count.");
+                    for (var i = 0; i < recentCount; i++)
+                    {
+                        var definitionId = new EventDefinitionId(reader.ReadString());
+                        var locationId = new EncounterLocationId(reader.ReadString());
+                        if (KnownEvents.AutomaticDefinitions.Contains(definitionId) &&
+                            KnownEncounterLocations.TryGetForDefinition(definitionId, locationId, out _))
+                            recentLocations.TryAdd(definitionId, locationId);
+                    }
+                }
+            }
+
+            _generator.Restore(enabled, nextEvaluationUtc, randomState, lastDefinitionId, recentLocations);
+        }
+    }
+
+    private void WriteRecentLocation(IGenericWriter writer, EventDefinitionId definitionId)
+    {
+        var locationId = _generator.GetLastAutomaticLocation(definitionId);
+        writer.Write(locationId.HasValue);
+        if (locationId is { } value)
+        {
+            writer.Write(value.Value);
+        }
+    }
+
+    private static void ReadRecentLocation(
+        IGenericReader reader,
+        EventDefinitionId definitionId,
+        IDictionary<EventDefinitionId, EncounterLocationId> locations
+    )
+    {
+        if (!reader.ReadBool())
+        {
+            return;
+        }
+        var token = reader.ReadString();
+        var locationId = new EncounterLocationId(token);
+        if (KnownEncounterLocations.TryGetForDefinition(definitionId, locationId, out _))
+        {
+            locations[definitionId] = locationId;
+        }
+        else
+        {
+            logger.Warning("Ignoring invalid recent location {Location} for {Definition}", token, definitionId);
         }
     }
 

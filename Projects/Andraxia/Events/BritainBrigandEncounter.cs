@@ -14,6 +14,8 @@ internal interface IEventEncounterSpawner
         int encounterSize,
         EncounterSeverity severity,
         ICollection<Serial> spawned,
+        ICollection<Serial> protectedMobiles,
+        ICollection<Serial> alliedMobiles,
         out string failure
     );
     void Delete(Serial serial);
@@ -31,6 +33,8 @@ internal sealed class BritainBrigandEncounter : IEventEncounterSpawner
         int encounterSize,
         EncounterSeverity severity,
         ICollection<Serial> spawned,
+        ICollection<Serial> protectedMobiles,
+        ICollection<Serial> alliedMobiles,
         out string failure
     )
     {
@@ -80,6 +84,9 @@ internal partial class AndraxiaEncounterEvilMage : EvilMage
     {
     }
 
+    public override bool IsHarmfulCriminal(Mobile target) =>
+        !CaravanCombatRules.AreOpponents(this, target) && base.IsHarmfulCriminal(target);
+
     public override void OnDeath(Items.Container corpse)
     {
         EventEncounterLifecycle.OnCreatureDefeated(this);
@@ -101,6 +108,9 @@ internal partial class AndraxiaEncounterBrigand : Brigand
     public AndraxiaEncounterBrigand()
     {
     }
+
+    public override bool IsHarmfulCriminal(Mobile target) =>
+        !CaravanCombatRules.AreOpponents(this, target) && base.IsHarmfulCriminal(target);
 
     public override void OnDeath(Items.Container corpse)
     {

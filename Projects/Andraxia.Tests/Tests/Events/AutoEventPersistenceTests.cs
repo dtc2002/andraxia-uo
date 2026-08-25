@@ -46,6 +46,89 @@ public sealed class AutoEventPersistenceTests
     }
 
     [Fact]
+    public void VersionTenRoundTripsRecentAutomaticChoices()
+    {
+        using var source = new TestContext();
+        using var loaded = new TestContext();
+        source.Generator.Restore(
+            false,
+            null,
+            42,
+            KnownEvents.BritainDisturbance,
+            new Dictionary<EventDefinitionId, EncounterLocationId>
+            {
+                [KnownEvents.BritainDisturbance] = KnownEncounterLocations.BritainRoadNorth,
+                [KnownEvents.BritainUndeadDisturbance] = KnownEncounterLocations.BritainUndeadGraveyardEast,
+                [KnownEvents.BritainOrcRaidingParty] = KnownEncounterLocations.BritainOrcCampWest,
+                [KnownEvents.BritainBeastOutbreak] = KnownEncounterLocations.BritainBeastForestWest,
+                [KnownEvents.BritainCaravanAmbush] = KnownEncounterLocations.BritainCaravanRoadNorth
+            }
+        );
+        var writer = new BufferWriter(new byte[1024], true);
+        source.Persistence.Serialize(writer);
+
+        loaded.Persistence.Deserialize(new BufferReader(writer.Buffer));
+
+        Assert.Equal(KnownEvents.BritainDisturbance, loaded.Generator.LastAutomaticDefinitionId);
+        Assert.Equal(
+            KnownEncounterLocations.BritainRoadNorth,
+            loaded.Generator.GetLastAutomaticLocation(KnownEvents.BritainDisturbance)
+        );
+        Assert.Equal(
+            KnownEncounterLocations.BritainUndeadGraveyardEast,
+            loaded.Generator.GetLastAutomaticLocation(KnownEvents.BritainUndeadDisturbance)
+        );
+        Assert.Equal(KnownEncounterLocations.BritainOrcCampWest,
+            loaded.Generator.GetLastAutomaticLocation(KnownEvents.BritainOrcRaidingParty));
+        Assert.Equal(KnownEncounterLocations.BritainBeastForestWest,
+            loaded.Generator.GetLastAutomaticLocation(KnownEvents.BritainBeastOutbreak));
+        Assert.Equal(KnownEncounterLocations.BritainCaravanRoadNorth,
+            loaded.Generator.GetLastAutomaticLocation(KnownEvents.BritainCaravanAmbush));
+    }
+
+    [Fact]
+    public void VersionEightMigratesWithEmptyRecentMemory()
+    {
+        using var context = new TestContext();
+        var writer = new BufferWriter(new byte[64], true);
+        writer.WriteEncodedInt(8);
+        writer.WriteEncodedInt(0);
+        writer.Write(false);
+        writer.Write(false);
+        writer.Write(42UL);
+
+        context.Persistence.Deserialize(new BufferReader(writer.Buffer));
+
+        Assert.Null(context.Generator.LastAutomaticDefinitionId);
+        Assert.Null(context.Generator.GetLastAutomaticLocation(KnownEvents.BritainDisturbance));
+        Assert.Null(context.Generator.GetLastAutomaticLocation(KnownEvents.BritainUndeadDisturbance));
+    }
+
+    [Fact]
+    public void VersionNineMigratesFixedRecentLocations()
+    {
+        using var context = new TestContext();
+        var writer = new BufferWriter(new byte[512], true);
+        writer.WriteEncodedInt(9);
+        writer.WriteEncodedInt(0);
+        writer.Write(false);
+        writer.Write(false);
+        writer.Write(42UL);
+        writer.Write(true);
+        writer.Write(KnownEvents.BritainDisturbance.Value);
+        writer.Write(true);
+        writer.Write(KnownEncounterLocations.BritainRoadNorth.Value);
+        writer.Write(true);
+        writer.Write(KnownEncounterLocations.BritainUndeadGraveyardEast.Value);
+
+        context.Persistence.Deserialize(new BufferReader(writer.Buffer));
+
+        Assert.Equal(KnownEvents.BritainDisturbance, context.Generator.LastAutomaticDefinitionId);
+        Assert.Equal(KnownEncounterLocations.BritainRoadNorth,
+            context.Generator.GetLastAutomaticLocation(KnownEvents.BritainDisturbance));
+    }
+
+    [Fact]
     public void LegacyVersionThreeDefaultsDisabled()
     {
         using var clock = new SimulationClock(StartUtc);

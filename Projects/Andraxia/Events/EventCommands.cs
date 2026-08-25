@@ -100,7 +100,10 @@ internal static class EventCommands
             lines.Add($"  Severity: {instance.Severity}");
             lines.Add(
                 $"  {EventLifecycleTokens.GetToken(instance.State)} | {location?.DisplayName ?? "Unknown location"} | " +
-                $"remaining {Remaining(instance)}/{instance.OwnedMobiles.Count} | expires {instance.ExpiresUtc:O}"
+                $"hostiles {RemainingHostiles(instance)}/{instance.InitialHostileCount} | " +
+                $"protected {instance.ProtectedMobiles.Count}/{instance.InitialProtectedCount} | " +
+                $"allies {instance.AlliedMobiles.Count}/{instance.InitialAlliedCount} | " +
+                $"expires {instance.ExpiresUtc:O}"
             );
             lines.Add($"  Rumor: {location?.RumorText ?? "-"}");
             lines.Add($"  Town Crier registered: {(service.IsRumorRegistered(instance.Id) ? "Yes" : "No")}");
@@ -158,13 +161,16 @@ internal static class EventCommands
             $"--- {definition?.DisplayName ?? "Unknown event"} ---",
             $"Instance={instance.Id} Definition={instance.DefinitionId}",
             $"State={EventLifecycleTokens.GetToken(instance.State)} Target={instance.TargetId}",
+            $"Objective={definition?.ObjectiveLabel ?? "-"} Category={definition?.Category.ToString() ?? "-"}",
             hasLocation
                 ? $"Location={location.DisplayName} ({location.Id}) Map={location.Map?.Name ?? "-"} " +
                   $"Anchor={location.X},{location.Y},{location.Z}"
                 : $"Location={instance.SelectedLocationId?.Value ?? "-"} Map=? Anchor=?",
             $"Started={instance.StartedUtc:O} Expires={instance.ExpiresUtc:O} " +
             $"Completed={instance.CompletedUtc?.ToString("O") ?? "-"}",
-            $"Owned={instance.OwnedMobiles.Count} Remaining={Remaining(instance)}",
+            $"Hostiles={instance.InitialHostileCount} Remaining={RemainingHostiles(instance)} " +
+            $"Protected={instance.ProtectedMobiles.Count}/{instance.InitialProtectedCount} " +
+            $"Allies={instance.AlliedMobiles.Count}/{instance.InitialAlliedCount}",
             $"Severity={instance.Severity} ({EncounterSeverityPolicy.Description(instance.Severity)})",
             $"Encounter size={instance.OwnedMobiles.Count}",
             $"Rumor: {(hasLocation ? location.RumorText : "-")}",
@@ -205,8 +211,8 @@ internal static class EventCommands
             var mobile = World.FindMobile(serial, true);
             lines.Add(
                 mobile == null
-                    ? $"  {serial} Type=missing Map=- Pos=- Alive=? Deleted=?"
-                    : $"  {serial} Type={mobile.GetType().Name} Map={mobile.Map?.Name ?? "-"} " +
+                    ? $"  {serial} Role={Role(instance, serial)} Type=missing Map=- Pos=- Alive=? Deleted=?"
+                    : $"  {serial} Role={Role(instance, serial)} Type={mobile.GetType().Name} Map={mobile.Map?.Name ?? "-"} " +
                       $"Pos={mobile.X},{mobile.Y},{mobile.Z} Alive={mobile.Alive} Deleted={mobile.Deleted}"
             );
         }
@@ -216,6 +222,11 @@ internal static class EventCommands
 
     private static int Remaining(EventInstance instance) =>
         instance.OwnedMobiles.Count(serial => World.FindMobile(serial) is { Deleted: false });
+    private static int RemainingHostiles(EventInstance instance) =>
+        instance.HostileMobiles.Count(serial => World.FindMobile(serial) is { Deleted: false });
+    private static string Role(EventInstance instance, Serial serial) =>
+        instance.ProtectedMobiles.Contains(serial) ? "Protected" :
+            instance.AlliedMobiles.Contains(serial) ? "Ally" : "Hostile";
 
     [Usage("AndraxiaEventTrigger <event-definition-id> [location-id]")]
     [Description("Triggers a registered Andraxia encounter event.")]
@@ -394,5 +405,22 @@ internal static class EventCommands
             ? "Waiting for players"
             : _autoEvents.OrdinaryPlayerCount > 0 ? "Eligible" : "Waiting for players";
         e.Mobile.SendMessage($"Population eligibility: {populationStatus}");
+        var concern = AndraxiaAssembly.Concern?.Britain ?? RegionalConcern.None;
+        e.Mobile.SendMessage($"Current concern: {concern}");
+        e.Mobile.SendMessage($"Concern bias: {RegionalConcernMapping.Definition(concern)?.Value ?? "None"}");
+        e.Mobile.SendMessage($"Last automatic event: {DefinitionDisplayName(_autoEvents.LastAutomaticDefinitionId)}");
+        foreach (var definition in KnownEvents.Definitions)
+        {
+            e.Mobile.SendMessage(
+                $"Last {definition.DisplayName} location: " +
+                LocationDisplayName(_autoEvents.GetLastAutomaticLocation(definition.Id))
+            );
+        }
     }
+
+    private static string DefinitionDisplayName(EventDefinitionId? definitionId) =>
+        definitionId is { } id && _store.TryGetDefinition(id, out var definition) ? definition.DisplayName : "None";
+
+    private static string LocationDisplayName(EncounterLocationId? locationId) =>
+        locationId is { } id && KnownEncounterLocations.TryGet(id, out var location) ? location.DisplayName : "None";
 }
