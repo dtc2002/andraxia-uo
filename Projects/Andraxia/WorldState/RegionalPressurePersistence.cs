@@ -8,7 +8,7 @@ namespace Server.Andraxia;
 public sealed class RegionalPressurePersistence : GenericPersistence
 {
     internal const string PersistenceName = "AndraxiaRegionalPressure";
-    internal const int CurrentVersion = 3;
+    internal const int CurrentVersion = 4;
     internal const int MaximumRegionCount = 64;
     private static readonly ILogger logger = LogFactory.GetLogger(typeof(RegionalPressurePersistence));
     private readonly RegionalPressureStore _pressure;
@@ -43,6 +43,8 @@ public sealed class RegionalPressurePersistence : GenericPersistence
             writer.WriteEncodedInt(state.Pressure);
             writer.Write(RegionalConcernStore.Token(_concern.Get(state.Definition.Id)));
             writer.WriteEncodedInt(_concern.GetQuietIntervals(state.Definition.Id));
+            writer.WriteEncodedInt(state.Security);
+            writer.WriteEncodedInt(state.Prosperity);
         }
         writer.Write(_stabilizer.NextRecoveryUtc);
     }
@@ -86,6 +88,8 @@ public sealed class RegionalPressurePersistence : GenericPersistence
             var pressure = reader.ReadEncodedInt();
             var concernToken = reader.ReadString();
             var quiet = reader.ReadEncodedInt();
+            var security = version >= 4 ? reader.ReadEncodedInt() : (int?)null;
+            var prosperity = version >= 4 ? reader.ReadEncodedInt() : (int?)null;
             if (string.IsNullOrWhiteSpace(idToken))
             {
                 logger.Warning("Ignoring persisted regional state with an empty identifier");
@@ -103,7 +107,8 @@ public sealed class RegionalPressurePersistence : GenericPersistence
                 continue;
             }
             if (pressure is < 0 or > RegionalPressureStore.MaximumPressure ||
-                !RegionalConcernStore.TryParse(concernToken, out var concern) || quiet is < 0 or > 3)
+                !RegionalConcernStore.TryParse(concernToken, out var concern) || quiet is < 0 or > 3 ||
+                security is < 0 or > 100 || prosperity is < 0 or > 100)
             {
                 logger.Warning("Ignoring malformed persisted state for Andraxia region {Region}", id);
                 continue;
@@ -111,6 +116,8 @@ public sealed class RegionalPressurePersistence : GenericPersistence
 
             _pressure.Set(id, pressure);
             _concern.Restore(id, concern, quiet);
+            if (security.HasValue) _pressure.States.SetSecurity(id, security.Value);
+            if (prosperity.HasValue) _pressure.States.SetProsperity(id, prosperity.Value);
         }
 
         RestoreSchedule(reader.ReadDateTime());

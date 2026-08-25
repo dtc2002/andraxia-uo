@@ -19,6 +19,9 @@ public sealed class RegionalFoundationTests : IDisposable
         var definition = Assert.Single(KnownAndraxiaRegions.Definitions);
         Assert.Equal("region.britain", definition.Id.Value);
         Assert.Equal("Britain", definition.DisplayName);
+        Assert.Equal(25, definition.PressureBaseline);
+        Assert.Equal(60, definition.SecurityBaseline);
+        Assert.Equal(60, definition.ProsperityBaseline);
         Assert.True(KnownAndraxiaRegions.TryResolve(KnownEvents.Britain, out var regionId));
         Assert.Equal(definition.Id, regionId);
     }
@@ -102,7 +105,7 @@ public sealed class RegionalFoundationTests : IDisposable
     }
 
     [Fact]
-    public void VersionThreeRoundTripsMultipleRegionsInStableLayout()
+    public void CurrentVersionRoundTripsMultipleRegionsInStableLayout()
     {
         using var clock = new SimulationClock(StartUtc);
         var definitions = new[]

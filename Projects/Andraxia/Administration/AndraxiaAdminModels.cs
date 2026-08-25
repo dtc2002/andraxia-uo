@@ -88,8 +88,14 @@ internal sealed record AdminRegionView(
     RegionalPressureClassification Classification,
     RegionalConcern Concern,
     int QuietIntervals,
+    int Security,
+    RegionalSecurityClassification SecurityClassification,
+    int Prosperity,
+    RegionalProsperityClassification ProsperityClassification,
     string LastPressureChange,
-    string LastConcernChange
+    string LastConcernChange,
+    string LastSecurityChange,
+    string LastProsperityChange
 );
 
 internal sealed class AndraxiaAdminQueries(
@@ -112,6 +118,8 @@ internal sealed class AndraxiaAdminQueries(
     internal RegionalPressureClassification PressureClassification => RegionalPressureStore.Classify(pressure.Britain);
     internal RegionalConcern Concern => concern.Britain;
     internal int ConcernQuietIntervals => concern.QuietIntervals;
+    internal int Security => pressure.States.TryGet(KnownAndraxiaRegions.Britain, out var state) ? state.Security : 60;
+    internal int Prosperity => pressure.States.TryGet(KnownAndraxiaRegions.Britain, out var state) ? state.Prosperity : 60;
     internal int OrdinaryPlayers => autoEvents.OrdinaryPlayerCount;
     internal AutoEventEligibility AutomationEligibility => autoEvents.Eligibility;
     internal bool AutomationEnabled => autoEvents.Enabled;
@@ -136,8 +144,14 @@ internal sealed class AndraxiaAdminQueries(
             RegionalPressureStore.Classify(state.Pressure),
             state.Concern,
             state.ConcernQuietIntervals,
+            state.Security,
+            RegionalSecurity.Classify(state.Security),
+            state.Prosperity,
+            RegionalProsperity.Classify(state.Prosperity),
             state.LastPressureChange is { } change ? $"{change.Delta:+#;-#;0}: {change.Reason}" : "None",
-            state.LastConcernChange ?? "None"
+            state.LastConcernChange ?? "None",
+            state.LastSecurityChange is { } security ? $"{security.Delta:+#;-#;0}: {security.Reason}" : "None",
+            state.LastProsperityChange is { } prosperity ? $"{prosperity.Delta:+#;-#;0}: {prosperity.Reason}" : "None"
         );
         return true;
     }

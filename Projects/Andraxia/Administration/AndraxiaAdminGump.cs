@@ -14,6 +14,8 @@ internal enum AndraxiaAdminConfirmation
     CompleteEvent,
     FailEvent,
     SetPressure,
+    SetSecurity,
+    SetProsperity,
     SetConcern,
     ClearConcern,
     EnableAutomation,
@@ -125,10 +127,11 @@ internal sealed class AndraxiaAdminGump : DynamicGump
         Line(ref builder, 95, $"World: {_queries.BritainCondition}    Pressure: {_queries.Pressure}/100 ({classification})");
         Line(ref builder, 117, $"Concern: {_queries.Concern}  quiet {_queries.ConcernQuietIntervals}/4");
         Line(ref builder, 139, RegionalConcernStore.Description(_queries.Concern), MutedHue);
-        Line(ref builder, 170, $"Players: {_queries.OrdinaryPlayers}    Auto events: {OnOff(_queries.AutomationEnabled)}");
-        Line(ref builder, 192, $"Eligibility: {_queries.AutomationEligibility}    Chance: {RegionalPressureStore.TriggerProbability(_queries.Pressure):P0}");
-        Line(ref builder, 214, $"Next evaluation: {Utc(_queries.NextEvaluationUtc)}");
-        Line(ref builder, 236, $"Next stabilization: {Utc(_queries.NextStabilizationUtc)}");
+        Line(ref builder, 161, $"Security: {_queries.Security}/100    Prosperity: {_queries.Prosperity}/100", 0x35);
+        Line(ref builder, 190, $"Players: {_queries.OrdinaryPlayers}    Auto events: {OnOff(_queries.AutomationEnabled)}");
+        Line(ref builder, 212, $"Eligibility: {_queries.AutomationEligibility}    Chance: {RegionalPressureStore.TriggerProbability(_queries.Pressure):P0}");
+        Line(ref builder, 234, $"Next evaluation: {Utc(_queries.NextEvaluationUtc)}");
+        Line(ref builder, 256, $"Next stabilization: {Utc(_queries.NextStabilizationUtc)}");
 
         var active = _queries.ActiveEvents().FirstOrDefault();
         if (active == null)
@@ -259,27 +262,39 @@ internal sealed class AndraxiaAdminGump : DynamicGump
         SmallButton(ref builder, 160, 86, 405, "<");
         AtLine(ref builder, 210, 88, $"{region.DisplayName} ({region.Id})", 0x35);
         SmallButton(ref builder, 665, 86, 406, ">");
-        Line(ref builder, 125, $"Pressure: {region.Pressure}/100 ({region.Classification})", 0x35);
-        Line(ref builder, 147, RegionalPressureStore.Description(region.Classification));
-        Line(ref builder, 169, $"Trigger probability: {RegionalPressureStore.TriggerProbability(region.Pressure):P0}");
-        Line(ref builder, 191, $"Next stabilization: {Utc(_queries.NextStabilizationUtc)}");
-        Line(ref builder, 213, $"Last pressure change: {region.LastPressureChange}", MutedHue);
-        builder.AddTextEntry(160, 242, 80, 22, LabelHue, 1, region.Pressure.ToString());
-        Button(ref builder, 255, 240, 400, "Set Pressure...");
+        Line(ref builder, 122, $"Pressure {region.Pressure}/100 ({region.Classification}) | " +
+            $"event chance {RegionalPressureStore.TriggerProbability(region.Pressure):P0}", 0x35);
+        Line(ref builder, 144, RegionalPressureStore.Description(region.Classification), MutedHue);
+        builder.AddTextEntry(160, 168, 80, 22, LabelHue, 1, region.Pressure.ToString());
+        SmallButton(ref builder, 255, 166, 400, "Set Pressure...");
 
         var concerns = Enum.GetValues<RegionalConcern>();
         _concernIndex = Math.Clamp(_concernIndex, 0, concerns.Length - 1);
         var selected = concerns[_concernIndex];
-        Line(ref builder, 302, $"Concern: {region.Concern}  quiet {region.QuietIntervals}/4", 0x35);
-        Line(ref builder, 324, RegionalConcernStore.Description(region.Concern, region.DisplayName));
-        Line(ref builder, 346, $"Bias: {RegionalConcernMapping.Definition(region.Concern)?.Value ?? "None"}");
-        Line(ref builder, 368, $"Town Crier: {YesNo(AndraxiaAssembly.EventService.IsConcernRumorRegistered(region.Id))}");
-        Line(ref builder, 390, $"Last concern change: {region.LastConcernChange}", MutedHue);
-        SmallButton(ref builder, 160, 427, 401, "<");
-        AtLine(ref builder, 210, 429, $"{selected} ({RegionalConcernStore.Token(selected)})");
-        SmallButton(ref builder, 480, 427, 402, ">");
-        Button(ref builder, 160, 462, 403, "Set Concern...");
-        Button(ref builder, 350, 462, 404, "Clear Concern...");
+        Line(ref builder, 204, $"Concern {region.Concern} | quiet {region.QuietIntervals}/4 | " +
+            $"Town Crier {YesNo(AndraxiaAssembly.EventService.IsConcernRumorRegistered(region.Id))}", 0x35);
+        Line(ref builder, 226, RegionalConcernStore.Description(region.Concern, region.DisplayName), MutedHue);
+        SmallButton(ref builder, 160, 250, 401, "<");
+        AtLine(ref builder, 210, 252, $"{selected} ({RegionalConcernStore.Token(selected)})");
+        SmallButton(ref builder, 480, 250, 402, ">");
+        SmallButton(ref builder, 550, 250, 403, "Set...");
+        SmallButton(ref builder, 660, 250, 404, "Clear...");
+
+        Line(ref builder, 292, $"Security {region.Security}/100 " +
+            $"({RegionalSecurity.Label(region.SecurityClassification)})", 0x35);
+        Line(ref builder, 314, RegionalSecurity.Description(region.SecurityClassification), MutedHue);
+        builder.AddTextEntry(160, 338, 80, 22, LabelHue, 2, region.Security.ToString());
+        SmallButton(ref builder, 255, 336, 407, "Set Security...");
+
+        Line(ref builder, 376, $"Prosperity {region.Prosperity}/100 " +
+            $"({RegionalProsperity.Label(region.ProsperityClassification)})", 0x35);
+        Line(ref builder, 398, RegionalProsperity.Description(region.ProsperityClassification), MutedHue);
+        builder.AddTextEntry(160, 422, 80, 22, LabelHue, 3, region.Prosperity.ToString());
+        SmallButton(ref builder, 255, 420, 408, "Set Prosperity...");
+
+        Line(ref builder, 462, $"Next stabilization: {Utc(_queries.NextStabilizationUtc)}", MutedHue);
+        Line(ref builder, 484, $"Last: P {region.LastPressureChange} | S {region.LastSecurityChange}", MutedHue);
+        Line(ref builder, 506, $"Last: C {region.LastConcernChange} | Prosperity {region.LastProsperityChange}", MutedHue);
     }
 
     private void RenderAutomation(ref DynamicGumpBuilder builder)
@@ -423,6 +438,8 @@ internal sealed class AndraxiaAdminGump : DynamicGump
         else if (button == 404) Confirm(AndraxiaAdminConfirmation.ClearConcern);
         else if (button == 405) CycleRegion(-1);
         else if (button == 406) CycleRegion(1);
+        else if (button == 407) { _confirmationValue = info.GetTextEntry(2); Confirm(AndraxiaAdminConfirmation.SetSecurity); }
+        else if (button == 408) { _confirmationValue = info.GetTextEntry(3); Confirm(AndraxiaAdminConfirmation.SetProsperity); }
         else if (button == 500) Confirm(AndraxiaAdminConfirmation.EnableAutomation);
         else if (button == 501) Confirm(AndraxiaAdminConfirmation.DisableAutomation);
         else if (button == 502) Result(_actions.Evaluate(owner));
@@ -441,6 +458,8 @@ internal sealed class AndraxiaAdminGump : DynamicGump
             AndraxiaAdminConfirmation.FailEvent when _confirmationEventId is { } id =>
                 _actions.TransitionEvent(owner, id, EventLifecycleState.Failed),
             AndraxiaAdminConfirmation.SetPressure => _actions.SetPressure(owner, SelectedRegion().Id, _confirmationValue),
+            AndraxiaAdminConfirmation.SetSecurity => _actions.SetSecurity(owner, SelectedRegion().Id, _confirmationValue),
+            AndraxiaAdminConfirmation.SetProsperity => _actions.SetProsperity(owner, SelectedRegion().Id, _confirmationValue),
             AndraxiaAdminConfirmation.SetConcern => _actions.SetConcern(owner, SelectedRegion().Id, _confirmationValue),
             AndraxiaAdminConfirmation.ClearConcern => _actions.ClearConcern(owner, SelectedRegion().Id),
             AndraxiaAdminConfirmation.EnableAutomation => _actions.SetAutomation(owner, true),
@@ -539,6 +558,8 @@ internal sealed class AndraxiaAdminGump : DynamicGump
         AndraxiaAdminConfirmation.CompleteEvent => $"Complete event {_confirmationEventId}?",
         AndraxiaAdminConfirmation.FailEvent => $"Fail event {_confirmationEventId}?",
         AndraxiaAdminConfirmation.SetPressure => $"Set {SelectedRegion().DisplayName} pressure to '{_confirmationValue}'?",
+        AndraxiaAdminConfirmation.SetSecurity => $"Set {SelectedRegion().DisplayName} security to '{_confirmationValue}'?",
+        AndraxiaAdminConfirmation.SetProsperity => $"Set {SelectedRegion().DisplayName} prosperity to '{_confirmationValue}'?",
         AndraxiaAdminConfirmation.SetConcern => $"Set {SelectedRegion().DisplayName} concern to '{_confirmationValue}'?",
         AndraxiaAdminConfirmation.ClearConcern => $"Clear {SelectedRegion().DisplayName} regional concern?",
         AndraxiaAdminConfirmation.EnableAutomation => "Enable automatic event generation?",

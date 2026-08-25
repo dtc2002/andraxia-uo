@@ -109,6 +109,12 @@ internal sealed class AndraxiaAdminActions(
         return new(true, $"{name} concern cleared.");
     }
 
+    internal AdminActionResult SetSecurity(Mobile owner, AndraxiaRegionId regionId, string token) =>
+        SetRegionalValue(owner, regionId, token, true);
+
+    internal AdminActionResult SetProsperity(Mobile owner, AndraxiaRegionId regionId, string token) =>
+        SetRegionalValue(owner, regionId, token, false);
+
     internal AdminActionResult SetAutomation(Mobile owner, bool enabled)
     {
         var changed = enabled ? autoEvents.Enable(Core.Now) : autoEvents.Disable();
@@ -138,6 +144,27 @@ internal sealed class AndraxiaAdminActions(
 
         owner.MoveToWorld(anchor, map);
         return new(true, $"Moved to event on {map.Name} at {anchor.X},{anchor.Y},{anchor.Z}.");
+    }
+
+    private AdminActionResult SetRegionalValue(
+        Mobile owner,
+        AndraxiaRegionId regionId,
+        string token,
+        bool security
+    )
+    {
+        var label = security ? "Security" : "Prosperity";
+        if (!int.TryParse(token, out var value) || value is < 0 or > 100)
+        {
+            return new(false, $"{label} must be an integer from 0 through 100.");
+        }
+        var changed = security
+            ? pressure.States.SetSecurity(regionId, value, "Administrative set")
+            : pressure.States.SetProsperity(regionId, value, "Administrative set");
+        if (!changed) return new(false, "Unknown regional identifier.");
+        var name = queries.TryRegion(regionId, out var region) ? region.DisplayName : regionId.Value;
+        if (owner != null) CommandLogging.WriteLine(owner, $"set {regionId} regional {label.ToLowerInvariant()} to {value}");
+        return new(true, $"{name} {label.ToLowerInvariant()} set to {value}.");
     }
 }
 

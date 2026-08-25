@@ -163,12 +163,22 @@ public sealed class AndraxiaAdminConsoleTests : IDisposable
             context.Queries.Regions.Select(static definition => definition.Id));
         Assert.True(context.Actions.SetPressure(null, second.Id, "70").Succeeded);
         Assert.True(context.Actions.SetConcern(null, second.Id, "raiders").Succeeded);
+        Assert.True(context.Actions.SetSecurity(null, second.Id, "45").Succeeded);
+        Assert.True(context.Actions.SetProsperity(null, second.Id, "80").Succeeded);
         Assert.True(context.Queries.TryRegion(second.Id, out var changed));
         Assert.True(context.Queries.TryRegion(KnownAndraxiaRegions.Britain, out var britain));
         Assert.Equal(70, changed.Pressure);
         Assert.Equal(RegionalConcern.Raiders, changed.Concern);
+        Assert.Equal(45, changed.Security);
+        Assert.Equal(RegionalSecurityClassification.Unstable, changed.SecurityClassification);
+        Assert.Equal(80, changed.Prosperity);
+        Assert.Equal(RegionalProsperityClassification.Thriving, changed.ProsperityClassification);
         Assert.Equal(25, britain.Pressure);
         Assert.Equal(RegionalConcern.None, britain.Concern);
+        Assert.Equal(60, britain.Security);
+        Assert.Equal(60, britain.Prosperity);
+        Assert.False(context.Actions.SetSecurity(null, second.Id, "101").Succeeded);
+        Assert.False(context.Actions.SetProsperity(null, second.Id, "invalid").Succeeded);
     }
 
     [Fact]

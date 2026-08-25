@@ -59,13 +59,14 @@ internal sealed class RegionalPressureStabilizer
         // Stabilization is independent of event lifecycle and world condition; it only adjusts pressure.
         foreach (var state in _pressure.States.Enumerate())
         {
-            var distance = RegionalPressureStore.DefaultPressure - state.Pressure;
+            var distance = state.Definition.PressureBaseline - state.Pressure;
             var movement = (int)Math.Min(Math.Abs((long)distance), intervals) * Math.Sign(distance);
             if (movement != 0)
             {
                 _pressure.Adjust(state.Definition.Id, movement, "Natural stabilization");
             }
             _concern?.Stabilize(state.Definition.Id, intervals);
+            _pressure.States.NormalizeWellbeing(state.Definition.Id, intervals);
         }
     }
 
