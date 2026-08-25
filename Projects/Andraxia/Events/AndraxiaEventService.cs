@@ -102,8 +102,11 @@ public sealed class AndraxiaEventService
         concern ??= AndraxiaAssembly.Concern;
         if (concern != null && _awareness is ModernUOEventAwareness modernAwareness)
         {
-            concern.Changed += () => modernAwareness.SyncConcern(concern.Britain);
-            modernAwareness.SyncConcern(concern.Britain);
+            concern.Changed += regionId => modernAwareness.SyncConcern(regionId, concern.Get(regionId));
+            foreach (var state in concern.States.Enumerate())
+            {
+                modernAwareness.SyncConcern(state.Definition.Id, state.Concern);
+            }
         }
         _participation = new EventParticipationTracker(events);
         Pressure = pressure ?? new RegionalPressureStore();
@@ -153,9 +156,16 @@ public sealed class AndraxiaEventService
             );
         }
 
+        _events.TryGetDefinition(definitionId, out var definition);
+        var regionId = new AndraxiaRegionId(definition.TargetId.Value);
+        if (!Pressure.TryGet(regionId, out var regionalPressure))
+        {
+            return new AndraxiaEventResult(validation with { Succeeded = false }, null);
+        }
+
         // Snapshot population and pressure once; neither can rescale an active event.
         var encounterSize = EncounterScalingPolicy.GetEncounterSize(_ordinaryPlayerCount());
-        var severity = EncounterSeverityPolicy.FromPressure(Pressure.Britain);
+        var severity = EncounterSeverityPolicy.FromPressure(regionalPressure);
 
         EncounterLocation location;
         if (forcedLocationId is { } locationId)
@@ -179,7 +189,8 @@ public sealed class AndraxiaEventService
             );
         }
 
-        var worldStateResult = _worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Threatened);
+        var worldStateId = KnownAndraxiaRegions.WorldStateId(regionId);
+        var worldStateResult = _worldStates.Transition(worldStateId, WorldCondition.Threatened);
         if (!worldStateResult.Succeeded)
         {
             return new AndraxiaEventResult(validation with { Succeeded = false }, worldStateResult);
@@ -197,7 +208,7 @@ public sealed class AndraxiaEventService
                 encounter.Delete(serial);
             }
 
-            var compensation = _worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Normal);
+            var compensation = _worldStates.Transition(worldStateId, WorldCondition.Normal);
             if (!compensation.Succeeded)
             {
                 logger.Error(
@@ -389,7 +400,15 @@ public sealed class AndraxiaEventService
             return new AndraxiaEventResult(validation, null);
         }
 
-        var worldStateResult = _worldStates.Transition(KnownWorldStates.Britain, WorldCondition.Normal);
+        var instance = validation.Instance;
+        var regionId = new AndraxiaRegionId(instance.TargetId.Value);
+        if (!Pressure.TryGet(regionId, out _))
+        {
+            return new AndraxiaEventResult(validation with { Succeeded = false }, null);
+        }
+        var worldStateResult = _worldStates.Transition(
+            KnownAndraxiaRegions.WorldStateId(regionId), WorldCondition.Normal
+        );
         if (!worldStateResult.Succeeded)
         {
             return new AndraxiaEventResult(validation with { Succeeded = false }, worldStateResult);
@@ -456,8 +475,9 @@ public sealed class AndraxiaEventService
     }
 
     internal bool IsRumorRegistered(EventInstanceId instanceId) => _awareness.IsRumorRegistered(instanceId);
-    internal bool IsConcernRumorRegistered() =>
-        _awareness is ModernUOEventAwareness awareness && awareness.IsConcernRumorRegistered();
+    internal bool IsConcernRumorRegistered(AndraxiaRegionId? regionId = null) =>
+        _awareness is ModernUOEventAwareness awareness &&
+        awareness.IsConcernRumorRegistered(regionId ?? KnownAndraxiaRegions.Britain);
     internal bool ExpirationTimerRunning => _scheduler.TimerRunning;
     internal DateTime? NextExpirationUtc => _scheduler.NextExpirationUtc;
     internal EventParticipationTracker Participation => _participation;

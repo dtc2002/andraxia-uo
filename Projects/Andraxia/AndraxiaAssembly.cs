@@ -13,6 +13,7 @@ public static class AndraxiaAssembly
     internal static EventStore Events { get; private set; }
     internal static AndraxiaEventService EventService { get; private set; }
     internal static AndraxiaAutoEventGenerator AutoEvents { get; private set; }
+    internal static RegionalStateStore Regions { get; private set; }
     internal static RegionalPressureStore Pressure { get; private set; }
     internal static RegionalPressureStabilizer PressureStabilizer { get; private set; }
     internal static RegionalConcernStore Concern { get; private set; }
@@ -27,8 +28,9 @@ public static class AndraxiaAssembly
         WorldStates = new WorldStateStore(KnownWorldStates.Definitions);
         _worldStatePersistence = new AndraxiaWorldStatePersistence(WorldStates);
         Events = new EventStore(KnownEvents.Definitions);
-        Pressure = new RegionalPressureStore();
-        Concern = new RegionalConcernStore();
+        Regions = new RegionalStateStore(KnownAndraxiaRegions.Definitions);
+        Pressure = new RegionalPressureStore(Regions);
+        Concern = new RegionalConcernStore(Regions);
         PressureStabilizer = new RegionalPressureStabilizer(Pressure, Concern);
         _pressurePersistence = new RegionalPressurePersistence(Pressure, PressureStabilizer, Concern);
         EventService = new AndraxiaEventService(Events, WorldStates, pressure: Pressure);

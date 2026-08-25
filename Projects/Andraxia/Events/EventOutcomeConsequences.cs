@@ -19,20 +19,23 @@ internal sealed class EventOutcomeConsequences(
     {
         var current = Get(id);
         if (current.Applied) return;
-        if (source == EventOutcomeSource.CombatSuccess)
-        {
-            pressure.AdjustBritain(-5, "Event cleared");
-        }
-        else if (source == EventOutcomeSource.AutomaticFailure)
-        {
-            pressure.AdjustBritain(10, "Event expired");
-        }
-        if (concern != null && events.TryGetInstance(id, out var instance) &&
+        if (events.TryGetInstance(id, out var instance) &&
             events.TryGetDefinition(instance.DefinitionId, out var definition))
         {
+            var regionId = new AndraxiaRegionId(instance.TargetId.Value);
+            if (!pressure.TryGet(regionId, out _))
+            {
+                _states[id] = new EventConsequence(source, true);
+                return;
+            }
+            if (source == EventOutcomeSource.CombatSuccess) pressure.Adjust(regionId, -5, "Event cleared");
+            else if (source == EventOutcomeSource.AutomaticFailure) pressure.Adjust(regionId, 10, "Event expired");
+
             var mapped = RegionalConcernMapping.FromCategory(definition.Category);
-            if (source == EventOutcomeSource.AutomaticFailure) concern.Establish(mapped, $"{definition.DisplayName} failed");
-            else if (source == EventOutcomeSource.CombatSuccess && concern.Britain == mapped) concern.Clear($"{definition.DisplayName} cleared");
+            if (concern != null && source == EventOutcomeSource.AutomaticFailure)
+                concern.Establish(regionId, mapped, $"{definition.DisplayName} failed");
+            else if (concern != null && source == EventOutcomeSource.CombatSuccess && concern.Get(regionId) == mapped)
+                concern.Clear(regionId, $"{definition.DisplayName} cleared");
         }
         _states[id] = new EventConsequence(source, true);
     }

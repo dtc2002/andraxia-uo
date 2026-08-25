@@ -8,28 +8,43 @@ public readonly record struct RegionalPressureChange(int Delta, string Reason);
 
 public sealed class RegionalPressureStore
 {
-    public const int DefaultBritainPressure = 25;
+    public const int DefaultPressure = 25;
+    public const int DefaultBritainPressure = DefaultPressure;
     public const int MaximumPressure = 100;
-    public int Britain { get; private set; } = DefaultBritainPressure;
-    public RegionalPressureChange? LastChange { get; private set; }
+    internal RegionalStateStore States { get; }
+
+    public RegionalPressureStore(RegionalStateStore states = null) => States = states ?? new RegionalStateStore();
+
+    public int Britain => Get(KnownAndraxiaRegions.Britain);
+    public RegionalPressureChange? LastChange => GetLastChange(KnownAndraxiaRegions.Britain);
+
+    public int Get(AndraxiaRegionId id) => States.TryGet(id, out var state) ? state.Pressure :
+        throw new ArgumentException($"Unknown regional identifier '{id}'.", nameof(id));
+
+    public bool TryGet(AndraxiaRegionId id, out int pressure)
+    {
+        if (States.TryGet(id, out var state))
+        {
+            pressure = state.Pressure;
+            return true;
+        }
+        pressure = default;
+        return false;
+    }
+
+    public RegionalPressureChange? GetLastChange(AndraxiaRegionId id) =>
+        States.TryGet(id, out var state) ? state.LastPressureChange : null;
 
     public int SetBritain(int value, string reason = null)
     {
-        var previous = Britain;
-        Britain = Math.Clamp(value, 0, MaximumPressure);
-        if (Britain != previous && reason != null)
-        {
-            LastChange = new RegionalPressureChange(Britain - previous, reason);
-        }
+        States.SetPressure(KnownAndraxiaRegions.Britain, value, reason);
         return Britain;
     }
 
     public int AdjustBritain(int delta, string reason = null) => SetBritain(Britain + delta, reason);
-    public void Reset()
-    {
-        Britain = DefaultBritainPressure;
-        LastChange = null;
-    }
+    public bool Set(AndraxiaRegionId id, int value, string reason = null) => States.SetPressure(id, value, reason);
+    public bool Adjust(AndraxiaRegionId id, int delta, string reason = null) => States.AdjustPressure(id, delta, reason);
+    public void Reset() => States.Reset();
 
     public static RegionalPressureClassification Classify(int value) => value switch
     {

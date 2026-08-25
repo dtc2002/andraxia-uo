@@ -81,6 +81,17 @@ internal sealed record AdminEventView(
 
 internal sealed record AdminHistoryPage(IReadOnlyList<AdminEventView> Entries, int Page, int PageCount);
 
+internal sealed record AdminRegionView(
+    AndraxiaRegionId Id,
+    string DisplayName,
+    int Pressure,
+    RegionalPressureClassification Classification,
+    RegionalConcern Concern,
+    int QuietIntervals,
+    string LastPressureChange,
+    string LastConcernChange
+);
+
 internal sealed class AndraxiaAdminQueries(
     WorldStateStore worldStates,
     EventStore events,
@@ -108,6 +119,28 @@ internal sealed class AndraxiaAdminQueries(
     internal DateTime NextStabilizationUtc => stabilizer.NextRecoveryUtc;
     internal string LastPressureChange => pressure.LastChange is { } change ? $"{change.Delta:+#;-#;0}: {change.Reason}" : "None";
     internal string LastConcernChange => concern.LastChange ?? "None";
+    internal IReadOnlyList<AndraxiaRegionDefinition> Regions => pressure.States.Enumerate()
+        .Select(static state => state.Definition).ToArray();
+
+    internal bool TryRegion(AndraxiaRegionId id, out AdminRegionView view)
+    {
+        if (!pressure.States.TryGet(id, out var state))
+        {
+            view = null;
+            return false;
+        }
+        view = new AdminRegionView(
+            id,
+            state.Definition.DisplayName,
+            state.Pressure,
+            RegionalPressureStore.Classify(state.Pressure),
+            state.Concern,
+            state.ConcernQuietIntervals,
+            state.LastPressureChange is { } change ? $"{change.Delta:+#;-#;0}: {change.Reason}" : "None",
+            state.LastConcernChange ?? "None"
+        );
+        return true;
+    }
 
     internal IReadOnlyList<EventDefinition> Definitions => KnownEvents.Definitions;
     internal IReadOnlyList<EncounterLocation> Locations(EventDefinitionId definitionId) =>

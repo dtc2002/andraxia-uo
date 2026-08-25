@@ -67,34 +67,46 @@ internal sealed class AndraxiaAdminActions(
     }
 
     internal AdminActionResult SetPressure(Mobile owner, string token)
+        => SetPressure(owner, KnownAndraxiaRegions.Britain, token);
+
+    internal AdminActionResult SetPressure(Mobile owner, AndraxiaRegionId regionId, string token)
     {
         if (!int.TryParse(token, out var value) || value is < 0 or > RegionalPressureStore.MaximumPressure)
         {
             return new(false, "Pressure must be an integer from 0 through 100.");
         }
 
-        pressure.SetBritain(value, "Administrative set");
-        CommandLogging.WriteLine(owner, $"set Britain regional pressure to {value}");
-        return new(true, $"Britain pressure set to {value}.");
+        if (!pressure.Set(regionId, value, "Administrative set")) return new(false, "Unknown regional identifier.");
+        var name = queries.TryRegion(regionId, out var region) ? region.DisplayName : regionId.Value;
+        if (owner != null) CommandLogging.WriteLine(owner, $"set {regionId} regional pressure to {value}");
+        return new(true, $"{name} pressure set to {value}.");
     }
 
     internal AdminActionResult SetConcern(Mobile owner, string token)
+        => SetConcern(owner, KnownAndraxiaRegions.Britain, token);
+
+    internal AdminActionResult SetConcern(Mobile owner, AndraxiaRegionId regionId, string token)
     {
         if (!RegionalConcernStore.TryParse(token, out var value))
         {
             return new(false, "Unknown regional concern token.");
         }
 
-        concern.Establish(value, "Administrative set");
-        CommandLogging.WriteLine(owner, $"set Britain regional concern to {token}");
-        return new(true, $"Britain concern set to {value}.");
+        if (!concern.Establish(regionId, value, "Administrative set")) return new(false, "Unknown regional identifier.");
+        var name = queries.TryRegion(regionId, out var region) ? region.DisplayName : regionId.Value;
+        if (owner != null) CommandLogging.WriteLine(owner, $"set {regionId} regional concern to {token}");
+        return new(true, $"{name} concern set to {value}.");
     }
 
     internal AdminActionResult ClearConcern(Mobile owner)
+        => ClearConcern(owner, KnownAndraxiaRegions.Britain);
+
+    internal AdminActionResult ClearConcern(Mobile owner, AndraxiaRegionId regionId)
     {
-        concern.Clear("Administrative clear");
-        CommandLogging.WriteLine(owner, "cleared Britain regional concern");
-        return new(true, "Britain concern cleared.");
+        if (!concern.Clear(regionId, "Administrative clear")) return new(false, "Unknown regional identifier.");
+        var name = queries.TryRegion(regionId, out var region) ? region.DisplayName : regionId.Value;
+        if (owner != null) CommandLogging.WriteLine(owner, $"cleared {regionId} regional concern");
+        return new(true, $"{name} concern cleared.");
     }
 
     internal AdminActionResult SetAutomation(Mobile owner, bool enabled)

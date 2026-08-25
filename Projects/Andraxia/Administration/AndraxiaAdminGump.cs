@@ -32,6 +32,7 @@ internal sealed class AndraxiaAdminGump : DynamicGump
     private int _definitionIndex;
     private int _locationIndex = -1;
     private int _concernIndex;
+    private int _regionIndex;
     private string _status;
     private AndraxiaAdminConfirmation _confirmation;
     private EventInstanceId? _confirmationEventId;
@@ -253,28 +254,32 @@ internal sealed class AndraxiaAdminGump : DynamicGump
 
     private void RenderRegionalState(ref DynamicGumpBuilder builder)
     {
+        var region = SelectedRegion();
         Header(ref builder, "Regional State");
-        Line(ref builder, 90, $"Pressure: {_queries.Pressure}/100 ({_queries.PressureClassification})", 0x35);
-        Line(ref builder, 112, RegionalPressureStore.Description(_queries.PressureClassification));
-        Line(ref builder, 134, $"Trigger probability: {RegionalPressureStore.TriggerProbability(_queries.Pressure):P0}");
-        Line(ref builder, 156, $"Next stabilization: {Utc(_queries.NextStabilizationUtc)}");
-        Line(ref builder, 178, $"Last pressure change: {_queries.LastPressureChange}", MutedHue);
-        builder.AddTextEntry(160, 210, 80, 22, LabelHue, 1, _queries.Pressure.ToString());
-        Button(ref builder, 255, 208, 400, "Set Pressure...");
+        SmallButton(ref builder, 160, 86, 405, "<");
+        AtLine(ref builder, 210, 88, $"{region.DisplayName} ({region.Id})", 0x35);
+        SmallButton(ref builder, 665, 86, 406, ">");
+        Line(ref builder, 125, $"Pressure: {region.Pressure}/100 ({region.Classification})", 0x35);
+        Line(ref builder, 147, RegionalPressureStore.Description(region.Classification));
+        Line(ref builder, 169, $"Trigger probability: {RegionalPressureStore.TriggerProbability(region.Pressure):P0}");
+        Line(ref builder, 191, $"Next stabilization: {Utc(_queries.NextStabilizationUtc)}");
+        Line(ref builder, 213, $"Last pressure change: {region.LastPressureChange}", MutedHue);
+        builder.AddTextEntry(160, 242, 80, 22, LabelHue, 1, region.Pressure.ToString());
+        Button(ref builder, 255, 240, 400, "Set Pressure...");
 
         var concerns = Enum.GetValues<RegionalConcern>();
         _concernIndex = Math.Clamp(_concernIndex, 0, concerns.Length - 1);
         var selected = concerns[_concernIndex];
-        Line(ref builder, 270, $"Concern: {_queries.Concern}  quiet {_queries.ConcernQuietIntervals}/4", 0x35);
-        Line(ref builder, 292, RegionalConcernStore.Description(_queries.Concern));
-        Line(ref builder, 314, $"Bias: {RegionalConcernMapping.Definition(_queries.Concern)?.Value ?? "None"}");
-        Line(ref builder, 336, $"Town Crier: {YesNo(AndraxiaAssembly.EventService.IsConcernRumorRegistered())}");
-        Line(ref builder, 358, $"Last concern change: {_queries.LastConcernChange}", MutedHue);
-        SmallButton(ref builder, 160, 395, 401, "<");
-        AtLine(ref builder, 210, 397, $"{selected} ({RegionalConcernStore.Token(selected)})");
-        SmallButton(ref builder, 480, 395, 402, ">");
-        Button(ref builder, 160, 430, 403, "Set Concern...");
-        Button(ref builder, 350, 430, 404, "Clear Concern...");
+        Line(ref builder, 302, $"Concern: {region.Concern}  quiet {region.QuietIntervals}/4", 0x35);
+        Line(ref builder, 324, RegionalConcernStore.Description(region.Concern, region.DisplayName));
+        Line(ref builder, 346, $"Bias: {RegionalConcernMapping.Definition(region.Concern)?.Value ?? "None"}");
+        Line(ref builder, 368, $"Town Crier: {YesNo(AndraxiaAssembly.EventService.IsConcernRumorRegistered(region.Id))}");
+        Line(ref builder, 390, $"Last concern change: {region.LastConcernChange}", MutedHue);
+        SmallButton(ref builder, 160, 427, 401, "<");
+        AtLine(ref builder, 210, 429, $"{selected} ({RegionalConcernStore.Token(selected)})");
+        SmallButton(ref builder, 480, 427, 402, ">");
+        Button(ref builder, 160, 462, 403, "Set Concern...");
+        Button(ref builder, 350, 462, 404, "Clear Concern...");
     }
 
     private void RenderAutomation(ref DynamicGumpBuilder builder)
@@ -335,6 +340,7 @@ internal sealed class AndraxiaAdminGump : DynamicGump
             $"World-state persistence: registered",
             $"Event persistence version: {AndraxiaEventPersistence.CurrentVersion}",
             $"Regional-state persistence version: {RegionalPressurePersistence.CurrentVersion}",
+            $"Regions ({_queries.Regions.Count}): {string.Join(", ", _queries.Regions.Select(static region => region.Id.Value))}",
             $"Expiration scheduler: {OnOff(AndraxiaAssembly.EventService.ExpirationTimerRunning)}",
             $"Auto-event scheduler: {OnOff(AndraxiaAssembly.AutoEvents.TimerRunning)}",
             $"Regional stabilizer: {OnOff(AndraxiaAssembly.PressureStabilizer.TimerRunning)}",
@@ -415,6 +421,8 @@ internal sealed class AndraxiaAdminGump : DynamicGump
         else if (button == 402) CycleConcern(1);
         else if (button == 403) { _confirmationValue = RegionalConcernStore.Token(Enum.GetValues<RegionalConcern>()[_concernIndex]); Confirm(AndraxiaAdminConfirmation.SetConcern); }
         else if (button == 404) Confirm(AndraxiaAdminConfirmation.ClearConcern);
+        else if (button == 405) CycleRegion(-1);
+        else if (button == 406) CycleRegion(1);
         else if (button == 500) Confirm(AndraxiaAdminConfirmation.EnableAutomation);
         else if (button == 501) Confirm(AndraxiaAdminConfirmation.DisableAutomation);
         else if (button == 502) Result(_actions.Evaluate(owner));
@@ -432,9 +440,9 @@ internal sealed class AndraxiaAdminGump : DynamicGump
                 _actions.TransitionEvent(owner, id, EventLifecycleState.Succeeded),
             AndraxiaAdminConfirmation.FailEvent when _confirmationEventId is { } id =>
                 _actions.TransitionEvent(owner, id, EventLifecycleState.Failed),
-            AndraxiaAdminConfirmation.SetPressure => _actions.SetPressure(owner, _confirmationValue),
-            AndraxiaAdminConfirmation.SetConcern => _actions.SetConcern(owner, _confirmationValue),
-            AndraxiaAdminConfirmation.ClearConcern => _actions.ClearConcern(owner),
+            AndraxiaAdminConfirmation.SetPressure => _actions.SetPressure(owner, SelectedRegion().Id, _confirmationValue),
+            AndraxiaAdminConfirmation.SetConcern => _actions.SetConcern(owner, SelectedRegion().Id, _confirmationValue),
+            AndraxiaAdminConfirmation.ClearConcern => _actions.ClearConcern(owner, SelectedRegion().Id),
             AndraxiaAdminConfirmation.EnableAutomation => _actions.SetAutomation(owner, true),
             AndraxiaAdminConfirmation.DisableAutomation => _actions.SetAutomation(owner, false),
             _ => new AdminActionResult(false, "Administrative target is no longer available.")
@@ -479,6 +487,20 @@ internal sealed class AndraxiaAdminGump : DynamicGump
         _concernIndex = (_concernIndex + delta + count) % count;
     }
 
+    private void CycleRegion(int delta)
+    {
+        var count = _queries.Regions.Count;
+        _regionIndex = (_regionIndex + delta + count) % count;
+    }
+
+    private AdminRegionView SelectedRegion()
+    {
+        var regions = _queries.Regions;
+        _regionIndex = Math.Clamp(_regionIndex, 0, regions.Count - 1);
+        _queries.TryRegion(regions[_regionIndex].Id, out var region);
+        return region;
+    }
+
     private void SelectDisplayed(int index, bool detail)
     {
         if (index >= 0 && index < _displayedEvents.Length && detail) _detailId = _displayedEvents[index];
@@ -516,9 +538,9 @@ internal sealed class AndraxiaAdminGump : DynamicGump
         AndraxiaAdminConfirmation.ResetWorld => "Reset Britain world state to its default?",
         AndraxiaAdminConfirmation.CompleteEvent => $"Complete event {_confirmationEventId}?",
         AndraxiaAdminConfirmation.FailEvent => $"Fail event {_confirmationEventId}?",
-        AndraxiaAdminConfirmation.SetPressure => $"Set Britain pressure to '{_confirmationValue}'?",
-        AndraxiaAdminConfirmation.SetConcern => $"Set Britain concern to '{_confirmationValue}'?",
-        AndraxiaAdminConfirmation.ClearConcern => "Clear Britain regional concern?",
+        AndraxiaAdminConfirmation.SetPressure => $"Set {SelectedRegion().DisplayName} pressure to '{_confirmationValue}'?",
+        AndraxiaAdminConfirmation.SetConcern => $"Set {SelectedRegion().DisplayName} concern to '{_confirmationValue}'?",
+        AndraxiaAdminConfirmation.ClearConcern => $"Clear {SelectedRegion().DisplayName} regional concern?",
         AndraxiaAdminConfirmation.EnableAutomation => "Enable automatic event generation?",
         AndraxiaAdminConfirmation.DisableAutomation => "Disable automatic event generation?",
         _ => "Confirm action?"

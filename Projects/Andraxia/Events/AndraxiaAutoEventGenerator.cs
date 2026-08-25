@@ -70,6 +70,7 @@ internal sealed class AndraxiaAutoEventGenerator
     private readonly AndraxiaAutoEventScheduler _scheduler;
     private readonly RegionalPressureStore _pressure;
     private readonly RegionalConcernStore _concern;
+    private readonly AndraxiaRegionId _regionId = KnownAndraxiaRegions.Britain;
     private readonly System.Collections.Generic.Dictionary<EventDefinitionId, EncounterLocationId> _recentLocations = [];
 
     internal AndraxiaAutoEventGenerator(
@@ -144,7 +145,7 @@ internal sealed class AndraxiaAutoEventGenerator
         var eligibleDefinitions = eligibility == AutoEventEligibility.Eligible ? GetKnownEligibleDefinitions() : [];
         var eligible = eligibility == AutoEventEligibility.Eligible && eligibleDefinitions.Length != 0;
         var probabilityPassed = eligible &&
-                                _random.NextDouble() < RegionalPressureStore.TriggerProbability(_pressure.Britain);
+                                _random.NextDouble() < RegionalPressureStore.TriggerProbability(_pressure.Get(_regionId));
         EventDefinitionId? selectedDefinitionId = null;
         AndraxiaEventResult? triggerResult = null;
         if (probabilityPassed)
@@ -161,7 +162,7 @@ internal sealed class AndraxiaAutoEventGenerator
                 : preferred.Length < eligibleDefinitions.Length
                     ? AutoEventSelectionReason.RepeatSuppressed
                     : AutoEventSelectionReason.InitialSelection;
-            var concernDefinition = _concern == null ? null : RegionalConcernMapping.Definition(_concern.Britain);
+            var concernDefinition = _concern == null ? null : RegionalConcernMapping.Definition(_concern.Get(_regionId));
             if (preferred.Length > 1 && concernDefinition is { } biased && preferred.Contains(biased))
             {
                 if (_random.NextDouble() < 0.5) selectedDefinitionId = biased;
@@ -291,13 +292,13 @@ internal sealed class AndraxiaAutoEventGenerator
         {
             return AutoEventEligibility.NoPlayers;
         }
-        if (!_worldStates.TryGetState(KnownWorldStates.Britain, out var condition) ||
+        if (!_worldStates.TryGetState(KnownAndraxiaRegions.WorldStateId(_regionId), out var condition) ||
             condition != WorldCondition.Normal)
         {
             return AutoEventEligibility.RegionNotNormal;
         }
         if (_events.EnumerateInstances().Any(
-                static instance => instance.State == EventLifecycleState.Active && instance.TargetId == KnownEvents.Britain
+                instance => instance.State == EventLifecycleState.Active && instance.TargetId.Value == _regionId.Value
             ))
         {
             return AutoEventEligibility.ActiveTargetEvent;

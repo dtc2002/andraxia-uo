@@ -39,7 +39,6 @@ internal sealed class RegionalPressureStabilizer
         {
             var elapsedIntervals = checked((long)((nowUtc - NextRecoveryUtc).Ticks / Interval.Ticks) + 1);
             MoveTowardBaseline(elapsedIntervals);
-            _concern?.Stabilize(elapsedIntervals);
             NextRecoveryUtc += TimeSpan.FromTicks(checked(elapsedIntervals * Interval.Ticks));
         }
         Arm(nowUtc);
@@ -51,7 +50,6 @@ internal sealed class RegionalPressureStabilizer
     {
         var nowUtc = Core.Now;
         MoveTowardBaseline(1);
-        _concern?.Stabilize(1);
         NextRecoveryUtc = nowUtc + Interval;
         Arm(nowUtc);
     }
@@ -59,12 +57,15 @@ internal sealed class RegionalPressureStabilizer
     private void MoveTowardBaseline(long intervals)
     {
         // Stabilization is independent of event lifecycle and world condition; it only adjusts pressure.
-        var current = _pressure.Britain;
-        var distance = RegionalPressureStore.DefaultBritainPressure - current;
-        var movement = (int)Math.Min(Math.Abs((long)distance), intervals) * Math.Sign(distance);
-        if (movement != 0)
+        foreach (var state in _pressure.States.Enumerate())
         {
-            _pressure.AdjustBritain(movement, "Natural stabilization");
+            var distance = RegionalPressureStore.DefaultPressure - state.Pressure;
+            var movement = (int)Math.Min(Math.Abs((long)distance), intervals) * Math.Sign(distance);
+            if (movement != 0)
+            {
+                _pressure.Adjust(state.Definition.Id, movement, "Natural stabilization");
+            }
+            _concern?.Stabilize(state.Definition.Id, intervals);
         }
     }
 

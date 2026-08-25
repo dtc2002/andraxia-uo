@@ -154,6 +154,24 @@ public sealed class AndraxiaAdminConsoleTests : IDisposable
     }
 
     [Fact]
+    public void RegionalViewAndAdministrativeMutationAreIsolatedBySelectedId()
+    {
+        var second = new AndraxiaRegionDefinition(new AndraxiaRegionId("region.test"), "Test Region");
+        var context = CreateContext(regionalDefinitions: [KnownAndraxiaRegions.Definitions[0], second]);
+
+        Assert.Equal([KnownAndraxiaRegions.Britain, second.Id],
+            context.Queries.Regions.Select(static definition => definition.Id));
+        Assert.True(context.Actions.SetPressure(null, second.Id, "70").Succeeded);
+        Assert.True(context.Actions.SetConcern(null, second.Id, "raiders").Succeeded);
+        Assert.True(context.Queries.TryRegion(second.Id, out var changed));
+        Assert.True(context.Queries.TryRegion(KnownAndraxiaRegions.Britain, out var britain));
+        Assert.Equal(70, changed.Pressure);
+        Assert.Equal(RegionalConcern.Raiders, changed.Concern);
+        Assert.Equal(25, britain.Pressure);
+        Assert.Equal(RegionalConcern.None, britain.Concern);
+    }
+
+    [Fact]
     public void HistoryPaginatesNewestFirstAndHandlesEmptyStore()
     {
         var empty = CreateContext();
@@ -205,14 +223,16 @@ public sealed class AndraxiaAdminConsoleTests : IDisposable
     private Context CreateContext(
         EventDefinitionId? handlerDefinition = null,
         int protectedCount = 0,
-        int alliedCount = 0
+        int alliedCount = 0,
+        AndraxiaRegionDefinition[] regionalDefinitions = null
     )
     {
         _context?.Dispose();
         var events = new EventStore(KnownEvents.Definitions);
         var states = new WorldStateStore(KnownWorldStates.Definitions);
-        var pressure = new RegionalPressureStore();
-        var concern = new RegionalConcernStore();
+        var regionalStates = new RegionalStateStore(regionalDefinitions);
+        var pressure = new RegionalPressureStore(regionalStates);
+        var concern = new RegionalConcernStore(regionalStates);
         var spawner = new TestEventEncounterSpawner
         {
             DefinitionId = handlerDefinition ?? KnownEvents.BritainDisturbance,
